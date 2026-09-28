@@ -1,137 +1,141 @@
-// Fuente única de las primitivas del juego: documentación interna, autocompletado y API.md.
+// Fuente única de las primitivas del juego: manual, autocompletado y docs/API.md.
+import type { UnitType } from './world/types';
 
 export interface ApiDoc {
   name: string;
   sig: string;
-  cat: 'Movimiento' | 'Sensores' | 'Trabajo' | 'Base' | 'Memoria' | 'Depuración';
+  cat: 'Movimiento' | 'Sensores' | 'Granjero' | 'Minero' | 'Constructor' | 'Hacker' | 'Aspersor' | 'Base' | 'Memoria' | 'Depuración' | 'Errores';
   desc: string;
   returns: string;
   time: string;
   energy: string;
+  who?: UnitType[];
+  raises?: string;
   example?: string;
 }
 
+const MOV: UnitType[] = ['granjero', 'minero', 'constructor', 'hacker'];
+
 export const API: ApiDoc[] = [
   {
-    name: 'mover', sig: 'mover(direccion)', cat: 'Movimiento',
-    desc: 'Mueve la unidad una casilla. direccion: "N", "S", "E" u "O". Si la casilla está bloqueada (agua, ruina, roca, bosque, borde) la unidad choca y pierde 1 s.',
-    returns: 'True si se movió, False si chocó', time: '2 s en hierba · 1,2 s carretera · 1,5 s hormigón · 3,5 s maleza', energy: '1',
+    name: 'mover', sig: 'mover(direccion)', cat: 'Movimiento', who: MOV,
+    desc: 'Mueve la unidad una casilla. direccion: "N", "S", "E" u "O". Las unidades de tierra chocan con agua, bosque, rocas, ruinas y edificios; los drones vuelan por encima de agua y bosque. Por un camino todo va más rápido.',
+    returns: 'True si se movió, False si chocó', time: 'según terreno (hierba 0,7 s · camino 0,35 s · dron 0,3 s)', energy: '1',
     example: 'if not mover("E"):\n    mover("N")',
   },
   {
     name: 'posicion', sig: 'posicion()', cat: 'Sensores',
-    desc: 'Coordenadas actuales de la unidad. x crece hacia el Este, y crece hacia el Sur.',
-    returns: 'tupla (x, y)', time: '0', energy: '0', example: 'x, y = posicion()',
+    desc: 'Coordenadas actuales. x crece hacia el Este, y crece hacia el Sur.', returns: 'tupla (x, y)', time: '0', energy: '0', example: 'x, y = posicion()',
   },
   {
-    name: 'escanear', sig: 'escanear()', cat: 'Sensores',
-    desc: 'Barre el entorno con el sensor (radio 3 en el dron). Revela el terreno en el mapa del jugador y devuelve los recursos detectados. Cada recurso tiene .tipo, .x, .y, .cantidad y .calidad.',
-    returns: 'lista de Recurso', time: '3 s', energy: '2',
-    example: 'for r in escanear():\n    print(r.tipo, r.x, r.y)',
+    name: 'escanear', sig: 'escanear()', cat: 'Sensores', who: MOV,
+    desc: 'Barre el entorno: revela el terreno y devuelve las vetas detectadas, de la más cercana a la más lejana. Cada una tiene .tipo, .x, .y, .cantidad y .calidad.',
+    returns: 'lista de Recurso', time: '1 s', energy: '2', example: 'for r in escanear():\n    print(r.tipo, r.x, r.y)',
+  },
+  {
+    name: 'radar', sig: 'radar()', cat: 'Sensores',
+    desc: 'Unidades cercanas (propias y enemigas). Cada una tiene .nombre, .tipo, .x, .y, .dueño y .enemiga.',
+    returns: 'lista de Unidad', time: '0', energy: '0', example: 'enemigos = [u for u in radar() if u.enemiga]',
   },
   {
     name: 'mirar', sig: 'mirar(direccion)', cat: 'Sensores',
-    desc: 'Consulta el terreno de la casilla vecina sin moverse.',
-    returns: 'texto: "hierba", "carretera", "agua", "ruina", "roca", "bosque"… o "borde"', time: '0,5 s', energy: '0',
-    example: 'if mirar("E") != "agua":\n    mover("E")',
+    desc: 'Terreno de la casilla vecina sin moverse.', returns: 'texto: "hierba", "agua", "camino", "roca"… o "borde"', time: '0,2 s', energy: '0',
   },
   {
     name: 'terreno', sig: 'terreno(x, y)', cat: 'Sensores',
-    desc: 'Terreno de una casilla según el mapa conocido por tu colonia (lo que han visto todas tus unidades).',
-    returns: 'texto, o None si la casilla no se ha explorado', time: '0', energy: '0',
+    desc: 'Terreno de una casilla según lo que ha visto tu colonia.', returns: 'texto, o None si no se ha explorado', time: '0', energy: '0',
   },
   {
     name: 'transitable', sig: 'transitable(x, y)', cat: 'Sensores',
-    desc: 'True si la casilla es conocida y la unidad puede pisarla. Útil para BFS / A*.',
-    returns: 'True / False / None (desconocida)', time: '0', energy: '0',
+    desc: 'True si la casilla es conocida y esta unidad puede entrar. Ideal para BFS / A*.', returns: 'True / False / None', time: '0', energy: '0',
   },
   {
     name: 'coste', sig: 'coste(x, y)', cat: 'Sensores',
-    desc: 'Segundos que tardaría esta unidad en entrar en la casilla (según terreno conocido). None si es intransitable o desconocida. Útil para Dijkstra.',
-    returns: 'número o None', time: '0', energy: '0',
+    desc: 'Segundos que tardaría esta unidad en entrar en la casilla. Útil para Dijkstra.', returns: 'número o None', time: '0', energy: '0',
   },
+  { name: 'bateria', sig: 'bateria()', cat: 'Sensores', desc: 'Energía (0-100). Se recarga con recargar() junto a la base o un panel solar.', returns: 'número', time: '0', energy: '0' },
+  { name: 'senal', sig: 'senal()', cat: 'Sensores', desc: 'True si la unidad está dentro del alcance de la base (radio 9) o de una antena propia (radio 7). Sin señal, las acciones tardan el doble.', returns: 'True / False', time: '0', energy: '0' },
+  { name: 'carga', sig: 'carga()', cat: 'Sensores', desc: 'Unidades que transporta.', returns: 'entero', time: '0', energy: '0' },
+  { name: 'carga_max', sig: 'carga_max()', cat: 'Sensores', desc: 'Capacidad de carga (minero 12, granjero 6).', returns: 'entero', time: '0', energy: '0' },
+  { name: 'inventario', sig: 'inventario()', cat: 'Sensores', desc: 'Lo que transporta, por tipo.', returns: 'dict {"hierro": 3, …}', time: '0', energy: '0' },
+  { name: 'recurso_aqui', sig: 'recurso_aqui()', cat: 'Sensores', desc: 'Veta de la casilla actual (si ya se escaneó).', returns: 'Recurso o None', time: '0', energy: '0' },
+  { name: 'tiempo', sig: 'tiempo()', cat: 'Sensores', desc: 'Segundos desde que empezó el programa.', returns: 'número', time: '0', energy: '0' },
+  { name: 'tiempo_restante', sig: 'tiempo_restante()', cat: 'Sensores', desc: 'Segundos que quedan de partida.', returns: 'número o None', time: '0', energy: '0' },
+  { name: 'nombre', sig: 'nombre()', cat: 'Sensores', desc: 'Nombre de la unidad (p. ej. "MIN-01").', returns: 'texto', time: '0', energy: '0' },
+  { name: 'tipo', sig: 'tipo()', cat: 'Sensores', desc: 'Tipo de la unidad: "granjero", "minero", "constructor", "hacker" o "aspersor".', returns: 'texto', time: '0', energy: '0' },
+  { name: 'integridad', sig: 'integridad()', cat: 'Sensores', desc: 'False si un hacker ha modificado el programa que estás ejecutando.', returns: 'True / False', time: '0', energy: '0', example: 'if not integridad():\n    print("¡me han hackeado!")' },
+
+  // base
+  { name: 'base', sig: 'base()', cat: 'Base', desc: 'Coordenadas del muelle de tu base (junto al centro operativo).', returns: 'tupla (x, y)', time: '0', energy: '0' },
+  { name: 'almacen', sig: 'almacen()', cat: 'Base', desc: 'Recursos guardados en tu colonia.', returns: 'dict', time: '0', energy: '0' },
   {
-    name: 'bateria', sig: 'bateria()', cat: 'Sensores',
-    desc: 'Energía actual (0-100). Los paneles de la unidad recargan ~2 % por minuto.',
-    returns: 'número', time: '0', energy: '0',
+    name: 'descargar', sig: 'descargar()', cat: 'Base', who: MOV,
+    desc: 'Entrega la carga en la base (a 2 casillas o menos) o en un almacén propio (al lado). Un silo sólo acepta cosecha. Cada recurso suma puntos: hierro 1, chatarra 1, cobre 2, cosecha 3, silicio 4.',
+    returns: 'unidades entregadas', time: '0,7 s', energy: '0',
   },
+  { name: 'recargar', sig: 'recargar()', cat: 'Base', who: MOV, desc: 'Recarga al 100 % junto a la base o a un panel solar propio.', returns: 'batería', time: 'proporcional a lo que falte', energy: '—' },
+  { name: 'esperar', sig: 'esperar(segundos)', cat: 'Base', desc: 'Espera los segundos indicados (tiempo real).', returns: 'None', time: 'lo indicado', energy: '0' },
+
+  // granjero
+  { name: 'plantar', sig: 'plantar()', cat: 'Granjero', who: ['granjero'], desc: 'Siembra en la parcela de huerto que hay debajo.', returns: 'True', time: '0,7 s', energy: '1', raises: 'AccionInvalidaError si no hay huerto o ya está plantado' },
+  { name: 'regar', sig: 'regar()', cat: 'Granjero', who: ['granjero'], desc: 'Añade 45 de humedad a la parcela. Gasta 1 de agua del depósito (6).', returns: 'True', time: '0,5 s', energy: '1', raises: 'SinRecursosError si el depósito está vacío' },
   {
-    name: 'carga', sig: 'carga()', cat: 'Sensores',
-    desc: 'Unidades de recurso que transporta ahora.', returns: 'entero', time: '0', energy: '0',
+    name: 'recolectar', sig: 'recolectar()', cat: 'Granjero', who: ['granjero'],
+    desc: 'Cosecha la parcela si su madurez es 100: +2 cosecha. Un cultivo madura 1 punto por segundo mientras su humedad sea > 30; la humedad baja sola.',
+    returns: 'unidades recogidas', time: '1 s', energy: '1', raises: 'CultivoNoMaduroError si aún no está listo',
+    example: 'try:\n    recolectar()\nexcept CultivoNoMaduroError as e:\n    print("todavía no:", e)',
   },
+  { name: 'cargar_agua', sig: 'cargar_agua()', cat: 'Granjero', who: ['granjero'], desc: 'Llena el depósito junto al agua o a la base.', returns: 'agua', time: '0,7 s', energy: '0', raises: 'FueraDeRangoError si no hay agua cerca' },
+  { name: 'agua', sig: 'agua()', cat: 'Granjero', who: ['granjero', 'aspersor'], desc: 'Agua que queda en el depósito.', returns: 'entero', time: '0', energy: '0' },
   {
-    name: 'carga_max', sig: 'carga_max()', cat: 'Sensores',
-    desc: 'Capacidad de carga de la unidad.', returns: 'entero', time: '0', energy: '0',
+    name: 'parcela_aqui', sig: 'parcela_aqui()', cat: 'Granjero',
+    desc: 'La parcela de huerto de la casilla actual como objeto Parcela: .plantada, .humedad, .madurez, .lista, .propia, .x, .y.',
+    returns: 'Parcela o None', time: '0', energy: '0', example: 'p = parcela_aqui()\nif p and p.humedad < 30:\n    regar()',
   },
+  { name: 'parcelas', sig: 'parcelas()', cat: 'Granjero', desc: 'Todas las parcelas de huerto que conoce tu colonia (incluidas las salvajes, sin dueño).', returns: 'lista de Parcela', time: '0', energy: '0' },
+
+  // minero
+  { name: 'picar', sig: 'picar()', cat: 'Minero', who: ['minero'], desc: 'Rompe 1 unidad de la veta de la casilla actual; cae al suelo.', returns: '1 si picó, 0 si no hay veta', time: 'hierro 1 s · cobre 1,4 s · silicio 2,1 s · chatarra 0,9 s', energy: '1' },
+  { name: 'recoger', sig: 'recoger()', cat: 'Minero', who: ['minero'], desc: 'Mete en la carga lo que hay en el suelo de la casilla (¡también lo que dejó otro minero!).', returns: 'unidades recogidas', time: '0,35 s', energy: '0' },
+  { name: 'suelo', sig: 'suelo()', cat: 'Minero', desc: 'Recursos sueltos en la casilla actual.', returns: 'dict', time: '0', energy: '0' },
+
+  // constructor
   {
-    name: 'inventario', sig: 'inventario()', cat: 'Sensores',
-    desc: 'Contenido de la carga por tipo de recurso.', returns: 'diccionario {"hierro": 3, …}', time: '0', energy: '0',
+    name: 'construir', sig: 'construir(tipo, direccion)', cat: 'Constructor', who: ['constructor'],
+    desc: 'Construye en la casilla vecina. Tipos y coste: "camino" (1 chatarra; sobre agua es un puente: 3 chatarra + 1 hierro), "almacen" (5 hierro + 3 chatarra), "silo" (3 hierro, sólo cosecha), "panel" (2 silicio + 2 cobre), "antena" (3 cobre + 2 hierro), "aspersor" (2 cobre + 2 hierro).',
+    returns: 'True', time: 'camino 0,7 s · edificios 2-3 s', energy: '2', raises: 'SinRecursosError si faltan recursos · AccionInvalidaError si la casilla no vale',
+    example: 'try:\n    construir("panel", "S")\nexcept SinRecursosError:\n    print("aún no hay silicio")',
   },
+  { name: 'coste_edificio', sig: 'coste_edificio(tipo)', cat: 'Constructor', desc: 'Lo que cuesta un edificio.', returns: 'dict', time: '0', energy: '0' },
+  { name: 'edificios', sig: 'edificios()', cat: 'Constructor', desc: 'Tus edificios: .tipo, .x, .y', returns: 'lista de Edificio', time: '0', energy: '0' },
+
+  // hacker
   {
-    name: 'recurso_aqui', sig: 'recurso_aqui()', cat: 'Sensores',
-    desc: 'Recurso que hay en la casilla actual (si ya fue escaneado).', returns: 'Recurso o None', time: '0', energy: '0',
+    name: 'hackear', sig: 'hackear(direccion, modo="invertir")', cat: 'Hacker', who: ['hacker'],
+    desc: 'Modifica el programa de la unidad enemiga que está en la casilla vecina. Modos: "invertir" cambia una dirección ("N"↔"S", "E"↔"O"), "numero" suma o resta 1 a un número, "borrar" quita un carácter (puede romper el código). La víctima se reinicia con el código cambiado. Hay que estar 4 s al lado; luego 45 s de enfriamiento. La víctima queda protegida 40 s.',
+    returns: 'texto con el cambio, o False si falló', time: '4 s', energy: '3', raises: 'FueraDeRangoError si no hay enemigo al lado · AccionInvalidaError (enfriamiento, protegida o desactivado)',
   },
+
+  // aspersor
   {
-    name: 'extraer', sig: 'extraer()', cat: 'Trabajo',
-    desc: 'Extrae una unidad del recurso de la casilla actual. Hay que estar encima del recurso.',
-    returns: '1 si extrajo, 0 si no había recurso o la carga está llena', time: 'hierro 3 s · cobre 4 s · silicio 6 s · chatarra 2,5 s · biomasa 2 s', energy: '1',
-    example: 'while carga() < carga_max() and extraer():\n    pass',
+    name: 'disparar', sig: 'disparar(x, y)', cat: 'Aspersor', who: ['aspersor'],
+    desc: 'Lanza agua a una casilla (radio 3): riega esa parcela y sus 4 vecinas, y deja 8 s fuera de juego a los drones enemigos que estén allí (y cancela su hackeo). Gasta 1 de agua; el depósito (10) se rellena solo.',
+    returns: 'drones mojados', time: '0,3 s', energy: '0', raises: 'FueraDeRangoError · SinRecursosError',
   },
-  {
-    name: 'descargar', sig: 'descargar()', cat: 'Base',
-    desc: 'Descarga toda la carga en el almacén de la base. Hay que estar junto a la base (el muelle de base() sirve).',
-    returns: 'unidades descargadas', time: '2 s', energy: '0',
-  },
-  {
-    name: 'recargar', sig: 'recargar()', cat: 'Base',
-    desc: 'Recarga la batería al 100 % junto a la base.', returns: 'nueva batería', time: '0,4 s por cada 1 %', energy: '—',
-  },
-  {
-    name: 'base', sig: 'base()', cat: 'Base',
-    desc: 'Coordenadas del muelle de tu base (casilla libre al sur del centro operativo).',
-    returns: 'tupla (x, y)', time: '0', energy: '0',
-  },
-  {
-    name: 'almacen', sig: 'almacen()', cat: 'Base',
-    desc: 'Recursos guardados en tu base.', returns: 'diccionario', time: '0', energy: '0',
-  },
-  {
-    name: 'fabricar', sig: 'fabricar(tipo)', cat: 'Base',
-    desc: 'Fabrica una unidad nueva junto a la base. tipo: "dron" (10 hierro, 4 cobre), "explorador" (12 hierro, 6 cobre; vuela, radio 5, no mina) o "minero" (20 hierro, 8 chatarra; carga 20, mina más rápido).',
-    returns: 'nombre de la unidad nueva, o None si faltan recursos', time: '60-120 s', energy: '5',
-  },
-  {
-    name: 'esperar', sig: 'esperar(segundos)', cat: 'Trabajo',
-    desc: 'Espera sin hacer nada (mínimo 1 s). Los paneles siguen recargando.', returns: 'None', time: 'los segundos indicados', energy: '0',
-  },
-  {
-    name: 'tiempo', sig: 'tiempo()', cat: 'Sensores',
-    desc: 'Segundos transcurridos desde que empezó el programa.', returns: 'número', time: '0', energy: '0',
-  },
-  {
-    name: 'nombre', sig: 'nombre()', cat: 'Sensores',
-    desc: 'Nombre de la unidad que ejecuta el programa (p. ej. "DRN-01"). Útil cuando varias unidades comparten código.',
-    returns: 'texto', time: '0', energy: '0',
-  },
-  {
-    name: 'memoria', sig: 'memoria', cat: 'Memoria',
-    desc: 'Diccionario propio de la unidad que sobrevive a reinicios del programa. Guarda aquí lo que quieras recordar.',
-    returns: 'dict', time: '0', energy: '0', example: 'memoria["hierro"] = memoria.get("hierro", []) + [(x, y)]',
-  },
-  {
-    name: 'compartido', sig: 'compartido', cat: 'Memoria',
-    desc: 'Diccionario compartido por todas las unidades de tu colonia: la forma de que se pasen información.',
-    returns: 'dict', time: '0', energy: '0',
-  },
-  {
-    name: 'print', sig: 'print(...)', cat: 'Depuración',
-    desc: 'Escribe en el log de la unidad.', returns: 'None', time: '0', energy: '0',
-  },
-  {
-    name: 'dibujar_ruta', sig: 'dibujar_ruta(puntos)', cat: 'Depuración',
-    desc: 'Dibuja en el mapa una lista de coordenadas [(x, y), …]. Ideal para depurar tu pathfinding.',
-    returns: 'None', time: '0', energy: '0', example: 'dibujar_ruta(camino)',
-  },
+
+  // memoria
+  { name: 'memoria', sig: 'memoria', cat: 'Memoria', desc: 'Diccionario propio de la unidad que sobrevive a reinicios del programa (y a los hackeos).', returns: 'dict', time: '0', energy: '0', example: 'memoria["vetas"] = memoria.get("vetas", []) + [(x, y)]' },
+  { name: 'compartido', sig: 'compartido', cat: 'Memoria', desc: 'Diccionario compartido por todas las unidades de tu colonia.', returns: 'dict', time: '0', energy: '0', example: 'compartido["objetivo"] = (x, y)' },
+
+  // depuración
+  { name: 'print', sig: 'print(...)', cat: 'Depuración', desc: 'Escribe en el log de la unidad.', returns: 'None', time: '0', energy: '0' },
+  { name: 'dibujar_ruta', sig: 'dibujar_ruta(puntos)', cat: 'Depuración', desc: 'Dibuja en el mapa una lista de coordenadas [(x, y), …].', returns: 'None', time: '0', energy: '0' },
+
+  // errores
+  { name: 'SinRecursosError', sig: 'SinRecursosError', cat: 'Errores', desc: 'Faltan recursos, agua o batería para la acción.', returns: 'excepción', time: '', energy: '' },
+  { name: 'CultivoNoMaduroError', sig: 'CultivoNoMaduroError', cat: 'Errores', desc: 'Has intentado recolectar antes de tiempo.', returns: 'excepción', time: '', energy: '' },
+  { name: 'AccionInvalidaError', sig: 'AccionInvalidaError', cat: 'Errores', desc: 'La acción no tiene sentido aquí (no hay huerto, la unidad no sabe hacerlo, enfriamiento…).', returns: 'excepción', time: '', energy: '' },
+  { name: 'FueraDeRangoError', sig: 'FueraDeRangoError', cat: 'Errores', desc: 'El objetivo está demasiado lejos.', returns: 'excepción', time: '', energy: '' },
 ];
 
 export const API_NAMES = API.map((a) => a.name);

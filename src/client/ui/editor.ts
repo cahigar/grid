@@ -149,6 +149,11 @@ export class CodeEditor {
     this.states.delete(name);
   }
 
+  forgetAll(): void {
+    this.states.clear();
+    this.current = '';
+  }
+
   goToLine(line: number): void {
     const doc = this.view.state.doc;
     const l = doc.line(Math.max(1, Math.min(doc.lines, line)));

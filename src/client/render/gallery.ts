@@ -1,7 +1,7 @@
 // Guía visual: todos los assets procedurales del juego, animados.
 import { T, type PropKind, type UnitType } from '../../sim/world/types';
 import {
-  HH, HW, PAL, diamond, paintBase, paintGround, paintProp, paintResource, paintUnit,
+  HH, HW, PAL, diamond, paintBase, paintCrop, paintGround, paintProp, paintResource, paintUnit,
 } from './art';
 
 type Item = { label: string; draw: (ctx: CanvasRenderingContext2D, t: number) => void; tile?: T; h?: number };
@@ -36,7 +36,7 @@ const prop = (k: PropKind, v = 0) => (ctx: CanvasRenderingContext2D, t: number) 
   paintProp(ctx, k, v, t, PAL.teal);
 };
 
-const unit = (k: UnitType | 'constructor', working = false) => (ctx: CanvasRenderingContext2D, t: number) => {
+const unit = (k: UnitType, working = false) => (ctx: CanvasRenderingContext2D, t: number) => {
   ctx.scale(1.9, 1.9);
   ctx.save();
   diamond(ctx, 0, 0, HW, HH);
@@ -50,10 +50,11 @@ const SECTIONS: { title: string; note: string; items: Item[] }[] = [
   {
     title: 'Robots', note: 'Pequeños, funcionales, simpáticos. Color = tipo; acento = colonia.',
     items: [
-      { label: 'Dron (inicial)', draw: unit('dron', true) },
-      { label: 'Explorador aéreo', draw: unit('explorador') },
+      { label: 'Dron granjero', draw: unit('granjero', true) },
       { label: 'Minero', draw: unit('minero', true) },
       { label: 'Constructor', draw: unit('constructor') },
+      { label: 'Dron hacker', draw: unit('hacker', true) },
+      { label: 'Aspersor', draw: (c, t) => { c.scale(1.4, 1.4); unit('aspersor', true)(c, t); } },
     ],
   },
   {
@@ -91,7 +92,7 @@ const SECTIONS: { title: string; note: string; items: Item[] }[] = [
   },
   {
     title: 'Recursos', note: 'Visibles sólo tras escanear. Calidad ★ brilla.',
-    items: (['hierro', 'cobre', 'silicio', 'chatarra', 'biomasa'] as const).map((k) => ({
+    items: (['hierro', 'cobre', 'silicio', 'chatarra'] as const).map((k) => ({
       label: k[0].toUpperCase() + k.slice(1),
       draw: (c: CanvasRenderingContext2D, t: number) => { c.save(); diamond(c, 0, 0, HW, HH); c.fillStyle = 'rgba(111,166,75,0.35)'; c.fill(); c.restore(); paintResource(c, k, 3, 1, t); },
     })),
@@ -104,7 +105,8 @@ const SECTIONS: { title: string; note: string; items: Item[] }[] = [
       { label: 'Carretera · 1,2 s', draw: ground(T.CARRETERA) },
       { label: 'Hormigón · 1,5 s', draw: ground(T.HORMIGON) },
       { label: 'Agua · bloquea', draw: ground(T.AGUA) },
-      { label: 'Huerto · 2,5 s', draw: ground(T.CULTIVO) },
+      { label: 'Camino · 1 s', draw: ground(T.CAMINO) },
+      { label: 'Huerto (cultivo maduro)', draw: (c, t) => { ground(T.CULTIVO)(c); for (const [x, y] of [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1]]) { c.save(); c.translate((x - y) * HW, (x + y) * HH); paintCrop(c, x === 0 && y === 0 ? 100 : 30 + (x + 2) * 20, 60, true, t, x, y); c.restore(); } } },
     ],
   },
 ];

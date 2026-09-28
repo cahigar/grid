@@ -1,56 +1,50 @@
 # G.R.I.D. — Gamified Robotics & Instructional Development
 
-Juego de automatización persistente en vista isométrica donde **no controlas las máquinas: las programas**.
-Escribes Python, lo cargas en tus drones y ellos exploran, minan y vuelven a la base en tiempo real,
-también cuando cierras el juego.
+Juego de estrategia en vista isométrica donde **no controlas las máquinas: las programas**.
+Escribes Python, lo cargas en tus robots y compites con tu clase en partidas de 15 minutos.
 
-Esta es la **vertical slice / demo jugable** (iteración 1).
+Producción: **https://grid.carloshidalgo.eu**
 
-## Ejecutar
+## Qué hay
 
-Requisitos: Node.js 20+.
+| Ruta | Pantalla |
+|---|---|
+| `#/` | Inicio (entrar con código de sala, tutorial, práctica, guía, profesor) |
+| `#/entrar` | Cuentas: alumno (usuario + PIN de 4 cifras) y profesor (email + contraseña) |
+| `#/tutorial`, `#/tutorial/N` | 8 niveles: strings → bucles → condicionales → funciones → listas/diccionarios → excepciones → clases → hackeo |
+| `#/practica` | Colonia propia persistente en el navegador con colonias bot |
+| `#/guia` | Guía del operador (unidades, edificios, huertos, hackeo, primitivas, Python) |
+| `#/profe`, `#/profe/CODIGO` | Salas del profesor: lobby con QR, ajustes, partida en **modo dios** |
+| `#/sala/CODIGO` | Alumno: nombre → lobby → partida → resultados |
+
+Cada alumno empieza con **dron granjero**, **minero** (tierra), **constructor** (caminos, almacén, silo,
+panel solar, antena, aspersor) y **dron hacker**. Gana quien más puntos entrega en su base.
+
+## Arquitectura (resumen)
+
+- **Cliente** (Vite + TypeScript, Canvas 2D isométrico, CodeMirror 6). El intérprete PyGrid y la
+  simulación por eventos (`src/sim`) son TypeScript puro y deterministas.
+- **Partida**: el navegador del profesor es el servidor autoritativo. Los alumnos regeneran el mapa desde la
+  semilla y reciben parches filtrados por niebla cada ~330 ms; envían archivos y órdenes de ejecución.
+- **Tiempo real**: Ably (canales `grid:SALA:host|all|c:ID`, tokens con permisos mínimos emitidos por `/api/ably`).
+  Sin Ably (desarrollo) se usa `BroadcastChannel` entre pestañas.
+- **API** (`/api`, funciones de Vercel): cuentas, salas, progreso del tutorial y resultados en Postgres (Neon).
+  Tablas con prefijo `grid_` (se crean solas). En local, sin URL de base de datos, usa pg-mem.
+
+Más detalle en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md), [docs/DISENO.md](docs/DISENO.md) y
+[docs/API.md](docs/API.md).
+
+## Desarrollo
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
-npm test           # tests del intérprete y de la simulación
-npm run build      # build de producción en dist/ (desplegable en Vercel como sitio estático)
-npm run build:single   # un único HTML autocontenido en dist-single/
-npm run docs       # regenera docs/API.md desde src/sim/api.ts
+npm run dev     # http://localhost:5173 (incluye /api con pg-mem)
+npm test        # intérprete, mecánicas, multijugador y soluciones de los 8 niveles
+npm run build   # tsc + vite build → dist/
+npm run docs    # regenera docs/API.md
 ```
 
-`?galeria` en la URL abre la guía visual de assets.
+## Despliegue (Vercel)
 
-## Qué incluye la demo
-
-- Mundo 64×64 generado proceduralmente: ciudad en ruinas, río con puentes (algunos derruidos), lago, bosques,
-  rocas, huertos; niebla por jugador.
-- Tu colonia (centro operativo, paneles solares, almacén, silo, invernadero) y un **dron** programable.
-- **PyGrid**: intérprete de un subconjunto real de Python con estado serializable, límites de instrucciones,
-  módulos del jugador (`from nav import ir_a`), `math`, `random`, `heapq`, errores en español con línea.
-- Primitivas: `mover`, `escanear`, `mirar`, `extraer`, `descargar`, `recargar`, `fabricar`, `esperar`,
-  sensores (`posicion`, `bateria`, `carga`, `terreno`, `transitable`, `coste`…), `memoria`, `compartido`,
-  `dibujar_ruta` (ver [docs/API.md](docs/API.md)).
-- Simulación por eventos con marcas de tiempo: acciones en tiempo real (mover = 2 s), batería con
-  hibernación solar, bloqueos con contador de intentos y tiempo perdido, logs compactados.
-- **Persistencia**: se guarda en el navegador; al volver se calcula lo ocurrido y aparece el
-  **informe de regreso** (8 h de mundo se simulan en ~0,3 s).
-- Editor integrado (CodeMirror): resaltado, autocompletado de primitivas y de tus funciones,
-  diagnóstico en vivo, errores de ejecución marcados en la línea, versiones, **Probar 5 min**
-  (simula tu programa usando sólo el mapa que conoce tu colonia), manual integrado.
-- Tres colonias rivales programadas en PyGrid (una usa BFS), rankings diarios múltiples y
-  clasificación general por puntos.
-- Objetivos guía (sin tutorial): traer mineral → crear una biblioteca → fabricar otra unidad → …
-
-## Estructura
-
-```
-src/sim/lang     PyGrid: lexer, parser, compilador, VM, builtins, serialización
-src/sim/world    mapa procedural, simulación por eventos, contenido (plantillas y bots)
-src/sim/api.ts   fuente única de las primitivas (manual, autocompletado, API.md)
-src/client       render isométrico procedural, UI, editor, backend local
-tests            tests (node:test)
-docs             diseño, arquitectura, API
-```
-
-Más detalle en [docs/DISENO.md](docs/DISENO.md) y [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
+Variables de entorno: `GRID_URL` (o `DATABASE_URL`) de Neon, `ABLY_API_KEY`, `AUTH_SECRET` (cadena larga
+aleatoria). Opcional: `TEACHER_CODE` para restringir el registro de profesores.

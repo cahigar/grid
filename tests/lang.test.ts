@@ -266,3 +266,48 @@ test('random determinista por semilla y externos compartidos', () => {
   vm2.run(1e6);
   assert.equal(out[0], String(mem.get('x')));
 });
+
+test('clases: __init__, métodos, herencia, __str__, isinstance, excepciones propias', () => {
+  const src = `
+class Ruta:
+    """Una lista de pasos"""
+    def __init__(self, nombre, pasos=None):
+        self.nombre = nombre
+        self.pasos = pasos if pasos else []
+    def agregar(self, d):
+        self.pasos.append(d)
+        return self
+    def __len__(self):
+        return len(self.pasos)
+    def __str__(self):
+        return f"Ruta {self.nombre}: {''.join(self.pasos)}"
+
+class RutaSegura(Ruta):
+    def agregar(self, d):
+        if d not in "NSEO":
+            raise DireccionError("mala: " + d)
+        return Ruta.agregar(self, d)
+
+class DireccionError(Exception):
+    pass
+
+r = RutaSegura("a")
+r.agregar("N").agregar("E")
+print(r, isinstance(r, Ruta), isinstance(r, RutaSegura), r.pasos)
+try:
+    r.agregar("X")
+except DireccionError as e:
+    print("capturado", e)
+try:
+    r.agregar("Z")
+except Exception as e:
+    print("general", e)
+for d in r.pasos:
+    mover(d)
+print(r.nombre, len(r.pasos))
+`;
+  const a = outOf(src);
+  const b = outOf(src, { roundtrip: true });
+  assert.equal(a, b);
+  assert.equal(a, 'Ruta a: NE True True [\'N\', \'E\']\ncapturado mala: X\ngeneral mala: Z\na 2');
+});

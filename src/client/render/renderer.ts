@@ -1,9 +1,9 @@
 // Render isométrico con caché de chunks de suelo y sprites.
 import { Game, cargoCount } from '../../sim/world/game';
-import { T, UNIT_TYPES, type Prop, type Unit } from '../../sim/world/types';
+import { SIGNAL, T, UNIT_TYPES, type Prop, type Unit } from '../../sim/world/types';
 import {
-  ANIMATED_PROPS, HH, HW, PAL, RES_COLORS, diamond, paintBase, paintDock, paintFog, paintGridLine, paintGround,
-  paintProp, paintResource, paintUnit, propHeight, rgba,
+  ANIMATED_PROPS, HH, HW, PAL, RES_COLORS, diamond, paintBase, paintCrop, paintDock, paintDrops, paintFog, paintGridLine,
+  paintGround, paintProp, paintResource, paintUnit, propHeight, rgba,
 } from './art';
 
 const CH = 16;
@@ -15,7 +15,9 @@ export interface Camera {
 }
 
 interface Effect {
-  kind: 'text' | 'pulse' | 'bump';
+  kind: 'text' | 'pulse' | 'bump' | 'spray' | 'glitch';
+  fx?: number;
+  fy?: number;
   x: number;
   y: number;
   t0: number;
@@ -39,7 +41,13 @@ export class Renderer {
   private chunks = new Map<string, { canvas: HTMLCanvasElement; sig: string; used: number; ox: number; oy: number; s: number }>();
   private sprites = new Map<string, { c: HTMLCanvasElement; ax: number; ay: number }>();
   private propsAt = new Map<number, Prop[]>();
-  private propsVersion = -1;
+  private propsVersion = '';
+  private allKnown: Uint8Array | null = null;
+  /** vista de profesor: ve todo */
+  god = false;
+  showSignal = false;
+  /** balizas del tutorial */
+  beacons: [number, number][] = [];
   private effects: Effect[] = [];
   private lastEventT = 0;
   private terrainSig = '';
@@ -230,7 +238,8 @@ export class Renderer {
   }
 
   private indexProps(): void {
-    if (this.propsVersion === this.game.props.length) return;
+    const ver = `${this.game.props.length}|${this.game.terrainVersion}`;
+    if (this.propsVersion === ver) return;
     this.propsAt.clear();
     const w = this.game.cfg.w;
     for (const p of this.game.props) {
@@ -239,9 +248,8 @@ export class Renderer {
       if (arr) arr.push(p);
       else this.propsAt.set(k, [p]);
     }
-    this.propsVersion = this.game.props.length;
-    this.terrainSig = String(this.game.props.length);
-    this.chunks.clear();
+    this.propsVersion = ver;
+    this.terrainSig = ver;
   }
 
   // ───── efectos ─────
@@ -249,14 +257,25 @@ export class Renderer {
     const evs = this.game.events;
     for (const e of evs) {
       if (e.t <= this.lastEventT) continue;
-      if (e.owner !== this.me) continue;
-      if (e.t < now - 5000) continue;
+      if (e.owner !== this.me && !this.god) continue;
+      if (e.t < this.game.time - 5000) continue;
       if (e.kind === 'extract') this.effects.push({ kind: 'text', x: e.x, y: e.y, t0: now, dur: 1400, text: `+1 ${e.text}`, color: RES_COLORS[e.text as keyof typeof RES_COLORS] ?? '#fff' });
       else if (e.kind === 'deliver') this.effects.push({ kind: 'text', x: e.x, y: e.y, t0: now, dur: 2200, text: `▼ ${e.text}`, color: PAL.teal });
-      else if (e.kind === 'scan') this.effects.push({ kind: 'pulse', x: e.x, y: e.y, t0: now, dur: 1200, color: '#5fe8ff', r: UNIT_TYPES[this.game.units.get(e.unit)?.u.type ?? 'dron'].scan });
+      else if (e.kind === 'scan') this.effects.push({ kind: 'pulse', x: e.x, y: e.y, t0: now, dur: 1200, color: '#5fe8ff', r: UNIT_TYPES[this.game.units.get(e.unit)?.u.type ?? 'minero'].scan });
       else if (e.kind === 'bump') this.effects.push({ kind: 'bump', x: e.x, y: e.y, t0: now, dur: 600, color: '#ff6b5a' });
       else if (e.kind === 'error') this.effects.push({ kind: 'text', x: e.x, y: e.y, t0: now, dur: 2600, text: `✖ ${e.text}`, color: '#ff6b5a' });
       else if (e.kind === 'build') this.effects.push({ kind: 'text', x: e.x, y: e.y, t0: now, dur: 2600, text: `★ ${e.text}`, color: PAL.amber });
+      else if (e.kind === 'harvest') this.effects.push({ kind: 'text', x: e.x, y: e.y, t0: now, dur: 1800, text: `+${e.text} cosecha`, color: '#f0cf52' });
+      else if (e.kind === 'plant') this.effects.push({ kind: 'text', x: e.x, y: e.y, t0: now, dur: 1200, text: '🌱', color: '#8fd14f' });
+      else if (e.kind === 'pickup') this.effects.push({ kind: 'text', x: e.x, y: e.y, t0: now, dur: 1200, text: `▲ ${e.text}`, color: '#e3efec' });
+      else if (e.kind === 'splash') {
+        const src = this.game.units.get(e.unit)?.u;
+        this.effects.push({ kind: 'spray', x: e.x, y: e.y, fx: src?.x ?? e.x, fy: src?.y ?? e.y, t0: now, dur: 900, color: '#9fe3f0' });
+      } else if (e.kind === 'wet') this.effects.push({ kind: 'text', x: e.x, y: e.y, t0: now, dur: 2200, text: '💧 ¡mojado!', color: '#9fe3f0' });
+      else if (e.kind === 'hacked') {
+        this.effects.push({ kind: 'glitch', x: e.x, y: e.y, t0: now, dur: 1600, color: '#ff5d73' });
+        this.effects.push({ kind: 'text', x: e.x, y: e.y, t0: now, dur: 3000, text: '⚠ HACKEADO', color: '#ff5d73' });
+      } else if (e.kind === 'hack') this.effects.push({ kind: 'glitch', x: e.x, y: e.y, t0: now, dur: 900, color: '#ff5d73' });
     }
     if (evs.length) this.lastEventT = Math.max(this.lastEventT, evs[evs.length - 1].t);
   }
@@ -267,9 +286,13 @@ export class Renderer {
     this.indexProps();
     const ctx = this.ctx;
     const g = this.game;
-    const pl = g.player(this.me)!;
-    const known = pl.known;
+    const pl = g.player(this.me);
     const { w, h } = g.cfg;
+    if (this.god || !pl) {
+      if (!this.allKnown || this.allKnown.length !== w * h) this.allKnown = new Uint8Array(w * h).fill(1);
+    }
+    const known = this.god || !pl ? this.allKnown! : pl.known;
+    const resKnown = (id: number) => this.god || !pl || pl.knownRes.has(id);
     this.consumeEvents(realNow);
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -323,9 +346,55 @@ export class Renderer {
     if (this.hover && this.hover.x >= 0 && this.hover.y >= 0 && this.hover.x < w && this.hover.y < h) {
       drawDiamond(this.hover.x, this.hover.y, 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0.06)', 1.5);
     }
+    for (const [bx, by] of this.beacons) {
+      const [sx, sy] = toS(bx, by);
+      const pulse = 0.6 + Math.sin(realNow / 300) * 0.4;
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.scale(z, z);
+      ctx.fillStyle = rgba(PAL.amber, 0.18 * pulse + 0.1);
+      diamond(ctx, 0, 0, HW - 2, HH - 1);
+      ctx.fill();
+      ctx.strokeStyle = rgba(PAL.amber, 0.9);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      const g2 = ctx.createLinearGradient(0, -60, 0, 0);
+      g2.addColorStop(0, 'rgba(242,169,59,0)');
+      g2.addColorStop(1, rgba(PAL.amber, 0.5 * pulse));
+      ctx.fillStyle = g2;
+      ctx.fillRect(-6, -60, 12, 60);
+      ctx.fillStyle = '#ffd98a';
+      ctx.font = '700 18px "Space Grotesk", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('★', 0, -62 - Math.sin(realNow / 400) * 3);
+      ctx.restore();
+    }
     if (this.selectedTile) drawDiamond(this.selectedTile.x, this.selectedTile.y, PAL.amber, rgba(PAL.amber, 0.12));
 
-    const myUnits = g.unitsOf(this.me);
+    const myUnits = this.god ? [...g.units.values()].map((r) => r.u).filter((u) => u.id === this.selectedUnit) : g.unitsOf(this.me);
+    // alcance de señal (base + antenas) de la colonia de la unidad seleccionada
+    const selU = this.selectedUnit ? g.units.get(this.selectedUnit)?.u : null;
+    if (g.cfg.match && (this.showSignal || (selU && !g.inSignal(selU)))) {
+      const owner = selU?.owner ?? this.me;
+      const op = g.player(owner);
+      if (op) {
+        const rings: [number, number, number][] = [[op.p.base.x + 0.5, op.p.base.y + 0.5, SIGNAL.base], ...g.ownBuildings(owner, 'antena').map((a) => [a.x, a.y, SIGNAL.antena] as [number, number, number])];
+        ctx.save();
+        ctx.setLineDash([6, 6]);
+        ctx.lineDashOffset = -realNow / 60;
+        for (const [cx, cy, r] of rings) {
+          const [sx, sy] = toS(cx, cy);
+          ctx.strokeStyle = rgba(op.p.color, 0.5);
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.ellipse(sx, sy, r * HW * z * 1.414, r * HH * z * 1.414, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.fillStyle = rgba(op.p.color, 0.04);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
     // rastro y rutas
     for (const u of myUnits) {
       const sel = u.id === this.selectedUnit;
@@ -387,6 +456,7 @@ export class Renderer {
         if (props) {
           for (const p of props) {
             if (g.terrain[k] === T.BASE) continue;
+            if (p.kind === 'aspersor') continue;
             if (z < 0.55 && (p.kind === 'flores' || p.kind === 'poste' || p.kind === 'arbusto')) continue;
             const owner = p.owner ? g.player(p.owner)?.p.color ?? PAL.teal : PAL.teal;
             items.push({
@@ -408,10 +478,43 @@ export class Renderer {
             });
           }
         }
+        const par = g.parcels.get(k);
+        if (par) {
+          const pp = g.settleParcel(par, now);
+          items.push({
+            d: x + y + 0.02,
+            fn: () => {
+              const [sx, sy] = toS(x, y);
+              ctx.save();
+              ctx.translate(sx, sy);
+              ctx.scale(z, z);
+              paintCrop(ctx, pp.mat, pp.hum, pp.planted, realNow, x, y);
+              ctx.restore();
+            },
+          });
+        }
+        const drop = g.drops.get(k);
+        if (drop) {
+          const kinds = Object.keys(drop).filter((kk) => (drop as Record<string, number>)[kk] > 0);
+          const n = kinds.reduce((a, kk) => a + (drop as Record<string, number>)[kk], 0);
+          if (n > 0) {
+            items.push({
+              d: x + y + 0.03,
+              fn: () => {
+                const [sx, sy] = toS(x, y);
+                ctx.save();
+                ctx.translate(sx, sy + 4 * z);
+                ctx.scale(z, z);
+                paintDrops(ctx, kinds, n);
+                ctx.restore();
+              },
+            });
+          }
+        }
         const rid = g.resAt.get(k);
-        if (rid !== undefined && pl.knownRes.has(rid)) {
+        if (rid !== undefined && resKnown(rid)) {
           const r = g.resources.get(rid)!;
-          if (r.amount >= 1 || r.kind === 'biomasa') {
+          if (r.amount >= 1) {
             items.push({
               d: x + y + 0.05,
               fn: () => {
@@ -465,7 +568,7 @@ export class Renderer {
     const drawnUnits: { u: Unit; sx: number; sy: number }[] = [];
     for (const rt of g.units.values()) {
       const u = rt.u;
-      const mine = u.owner === this.me;
+      const mine = u.owner === this.me || this.god;
       if (!mine && !known[u.y * w + u.x]) continue;
       const [ux, uy] = Game.lerpPos(u, now);
       const color = g.player(u.owner)?.p.color ?? PAL.teal;
@@ -482,15 +585,23 @@ export class Renderer {
             const [p1, p2] = u.trail.slice(-2);
             facing = p2[0] > p1[0] ? 0 : p2[1] > p1[1] ? 1 : p2[0] < p1[0] ? 2 : 3;
           }
-          const working = !!a && (a.name === 'extraer' || a.name === 'escanear') && a.ok && now < a.end;
+          const working = !!a && ['picar', 'escanear', 'regar', 'plantar', 'recolectar', 'hackear', 'disparar', 'construir'].includes(a.name) && a.ok && now < a.end;
           ctx.save();
           ctx.translate(sx, sy);
-          ctx.scale(z * 1.3, z * 1.3);
+          const sc = u.type === 'aspersor' ? 1 : 1.3;
+          ctx.scale(z * sc, z * sc);
           if (!mine) ctx.globalAlpha = 0.85;
+          if (u.wetUntil > now) ctx.filter = 'saturate(0.4) brightness(1.15)';
           paintUnit(ctx, u.type, color, realNow + u.id.length * 300, {
             facing, working, moving: !!a && a.name === 'mover', carrying: cargoCount(u) / Math.max(1, UNIT_TYPES[u.type].cargo),
           });
           ctx.restore();
+          ctx.filter = 'none';
+          if (u.owner !== this.me && !this.god) {
+            // marca de color de la colonia rival
+            ctx.fillStyle = color;
+            ctx.beginPath(); ctx.arc(sx, sy + 6 * z, 3 * z, 0, Math.PI * 2); ctx.fill();
+          }
           if (mine) drawnUnits.push({ u, sx, sy });
         },
       });
@@ -508,6 +619,8 @@ export class Renderer {
       else if (u.status === 'HIBERNATING') { icon = 'ϟ'; col = PAL.amber; }
       else if (u.status === 'DONE') { icon = '✓'; col = '#8fd14f'; }
       else if (u.status === 'IDLE') { icon = '‖'; col = '#9fb3b0'; }
+      if (u.wetUntil > now) { icon = '≈'; col = '#9fe3f0'; }
+      if (u.hacked && now - u.hacked.t < 20_000) { icon = '⚠'; col = '#ff5d73'; }
       const top = sy - 60 * z;
       if (icon) {
         const bounce = Math.sin(realNow / 300) * 2;
@@ -521,7 +634,7 @@ export class Renderer {
         ctx.textAlign = 'center';
         ctx.fillText(icon, sx, top - 4 + bounce);
       }
-      if (sel || z > 1.1) {
+      if (sel || z > 1.7 || (this.hover && Math.abs(this.hover.x - u.x) + Math.abs(this.hover.y - u.y) === 0)) {
         ctx.font = `600 ${sel ? 12 : 10}px "JetBrains Mono", monospace`;
         ctx.textAlign = 'center';
         const tw = ctx.measureText(u.name).width;
@@ -566,6 +679,27 @@ export class Renderer {
         ctx.beginPath();
         ctx.ellipse(sx, sy, r * HW * z * 1.4, r * HH * z * 1.4, 0, 0, Math.PI * 2);
         ctx.stroke();
+      } else if (e.kind === 'spray') {
+        const [fx, fy] = toS(e.fx!, e.fy!);
+        for (let i = 0; i < 10; i++) {
+          const kk = Math.min(1, k * 1.4 - i * 0.03);
+          if (kk <= 0) continue;
+          const px = fx + (sx - fx) * kk;
+          const py = fy - 35 * z + (sy - fy + 35 * z) * kk - Math.sin(kk * Math.PI) * 40 * z;
+          ctx.fillStyle = rgba('#9fe3f0', 0.9 - k * 0.6);
+          ctx.beginPath(); ctx.arc(px + (i % 3) * 2, py + (i % 2) * 2, 2.2 * z, 0, Math.PI * 2); ctx.fill();
+        }
+        if (k > 0.6) {
+          ctx.strokeStyle = rgba('#bfefff', (1 - k) * 2);
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.ellipse(sx, sy, 30 * z * k, 15 * z * k, 0, 0, Math.PI * 2); ctx.stroke();
+        }
+      } else if (e.kind === 'glitch') {
+        for (let i = 0; i < 6; i++) {
+          const oy = (Math.random() - 0.5) * 40 * z;
+          ctx.fillStyle = rgba(i % 2 ? '#ff5d73' : '#5fe8ff', 0.7 * (1 - k));
+          ctx.fillRect(sx - 20 * z + Math.random() * 10, sy - 20 * z + oy, 30 * z * Math.random() + 8, 2);
+        }
       } else if (e.kind === 'bump') {
         ctx.strokeStyle = rgba(e.color, 1 - k);
         ctx.lineWidth = 2;
@@ -591,7 +725,12 @@ export class Renderer {
   pickUnit(sx: number, sy: number, now: number): Unit | null {
     let best: Unit | null = null;
     let bestD = 30;
-    for (const u of this.game.unitsOf(this.me)) {
+    const pl = this.game.player(this.me);
+    const w = this.game.cfg.w;
+    for (const rt of this.game.units.values()) {
+      const u = rt.u;
+      const visible = this.god || u.owner === this.me || (pl && pl.known[u.y * w + u.x]);
+      if (!visible) continue;
       const [ux, uy] = Game.lerpPos(u, now);
       const [px, py] = this.worldToScreen(...Renderer.tileToWorld(ux, uy));
       const d = Math.hypot(sx - px, sy - (py - 14 * this.cam.zoom));

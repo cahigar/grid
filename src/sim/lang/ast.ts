@@ -53,6 +53,7 @@ export type Stmt =
   | { k: 'pass'; line: number }
   | { k: 'return'; value: Expr | null; line: number }
   | { k: 'def'; name: string; params: Param[]; body: Stmt[]; line: number; doc: string | null }
+  | { k: 'class'; name: string; bases: Expr[]; body: Stmt[]; line: number; doc: string | null }
   | { k: 'global'; names: string[]; line: number }
   | { k: 'nonlocal'; names: string[]; line: number }
   | { k: 'try'; body: Stmt[]; handlers: Handler[]; orelse: Stmt[]; fin: Stmt[]; line: number }

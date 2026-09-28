@@ -1,6 +1,6 @@
 // Generación procedural del valle: ciudad en ruinas, río, bosques, rocas y recursos.
 import { fbm, hash2, Rng } from './rng';
-import { T, TERRAIN, type Prop, type ResKind, type ResourceNode, type WorldConfig } from './types';
+import { T, TERRAIN, type MineralKind as ResKind, type Prop, type ResourceNode, type WorldConfig } from './types';
 
 export interface GenResult {
   terrain: Uint8Array;
@@ -219,12 +219,18 @@ export function generate(cfg: WorldConfig, nSlots: number): GenResult {
     const y = rng.int(1, h - 2);
     if (get(x, y) === T.HIERBA && fbm(x / 7, y / 7, seed + 55) > 0.5) addRes(x, y, 'cobre', rng.int(10, 25));
   }
-  // biomasa en bordes de bosque (renovable)
-  for (let i = 0; i < (w * h) / 180; i++) {
-    const x = rng.int(1, w - 2);
-    const y = rng.int(1, h - 2);
-    const nearForest = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => get(x + dx, y + dy) === T.BOSQUE);
-    if (nearForest) addRes(x, y, 'biomasa', rng.int(6, 12));
+  // huertos salvajes (tierra fértil sin dueño) en claros junto al agua o al bosque
+  for (let i = 0; i < (w * h) / 260; i++) {
+    const cx = rng.int(2, w - 3);
+    const cy = rng.int(2, h - 3);
+    if (nearSlot(cx, cy, 5)) continue;
+    const near = [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2]].some(([dx, dy]) => get(cx + dx, cy + dy) === T.BOSQUE || get(cx + dx, cy + dy) === T.AGUA);
+    if (!near) continue;
+    for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      const x = cx + dx;
+      const y = cy + dy;
+      if (get(x, y) === T.HIERBA || get(x, y) === T.MALEZA) set(x, y, T.CULTIVO);
+    }
   }
   // cada base tiene al menos un par de vetas cercanas (pero fuera de la vista inicial)
   for (const s of slots) {
@@ -263,6 +269,7 @@ export function generate(cfg: WorldConfig, nSlots: number): GenResult {
     for (let i = resources.length - 1; i >= 0; i--) if (!reach[I(resources[i].x, resources[i].y)]) resources.splice(i, 1);
   }
 
+  for (let i = props.length - 1; i >= 0; i--) if (get(props[i].x, props[i].y) === T.CULTIVO) props.splice(i, 1);
   return { terrain: ter, props, resources, slots };
 }
 
@@ -284,21 +291,10 @@ export function buildBase(ter: Uint8Array, w: number, props: Prop[], slot: { x: 
     }
   }
   const dock = { x: bx, y: by + 2 };
-  // paneles solares al este
-  for (const [x, y] of [[bx + 3, by - 1], [bx + 3, by], [bx + 4, by - 1], [bx + 4, by]]) {
-    ter[I(x, y)] = T.ESTRUCTURA;
-    props.push({ x, y, kind: 'panel_solar', v: 0, owner });
-  }
-  // almacén y antena al oeste
-  ter[I(bx - 2, by)] = T.ESTRUCTURA;
-  props.push({ x: bx - 2, y: by, kind: 'almacen', v: 0, owner });
+  // antena de la base (decorativa: la señal la da la propia base)
   ter[I(bx - 2, by - 1)] = T.ESTRUCTURA;
   props.push({ x: bx - 2, y: by - 1, kind: 'antena', v: 0, owner });
-  ter[I(bx + 2, by - 2)] = T.ESTRUCTURA;
-  props.push({ x: bx + 2, y: by - 2, kind: 'silo', v: 0, owner });
-  // huerto al sur-este
-  for (let y = by + 2; y <= by + 4; y++) for (let x = bx + 3; x <= bx + 4; x++) ter[I(x, y)] = T.CULTIVO;
-  ter[I(bx - 2, by + 2)] = T.ESTRUCTURA;
-  props.push({ x: bx - 2, y: by + 2, kind: 'invernadero', v: 0, owner });
+  // huerto propio: 2×3 parcelas al este
+  for (let y = by; y <= by + 2; y++) for (let x = bx + 3; x <= bx + 4; x++) ter[I(x, y)] = T.CULTIVO;
   return { base: { x: bx, y: by }, dock };
 }

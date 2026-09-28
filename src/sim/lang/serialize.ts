@@ -1,7 +1,8 @@
 // PyGrid — serialización del estado completo de la VM (con aliasing y ciclos).
 import { VM, type Bundle, type Frame, type Host } from './vm';
 import {
-  BoundMethod, Builtin, Env, ExcObj, ExcType, Iter, ModuleObj, PyDict, PyFunc, PySet, Range, PyRecord, Tuple, type Value,
+  BoundMethod, Builtin, Env, ExcObj, ExcType, Iter, ModuleObj, PyBound, PyClass, PyDict, PyFunc, PyInstance, PySet, Range,
+  PyRecord, Tuple, type Value,
 } from './values';
 
 type Enc = null | boolean | number | string | { r: number } | { n: string } | { x: string };
@@ -14,7 +15,9 @@ export interface VMState {
   frames: {
     mod: string; ci: number; ip: number; stack: Enc[]; env: Enc; globals: Enc;
     handlers: { ip: number; sp: number }[]; curExc: Enc; importOf: string | null;
+    classOf?: { name: string; bases: Enc[] } | null; initOf?: Enc;
   }[];
+  excParent?: [string, string][];
   modules: [string, Enc, boolean][];
   waiting: boolean;
   finished: boolean;
@@ -55,6 +58,9 @@ function makeEncoder(externals: Map<object, string>) {
     else if (v instanceof ModuleObj) entry.push('O', v.name);
     else if (v instanceof ExcType) entry.push('X', v.name);
     else if (v instanceof ExcObj) entry.push('Y', v.type, v.msg);
+    else if (v instanceof PyClass) entry.push('C', v.name, v.bases.map(enc), v.excBase, [...v.attrs].map(([k, x]) => [k, enc(x)]));
+    else if (v instanceof PyInstance) entry.push('N', enc(v.cls), v.id, [...v.attrs].map(([k, x]) => [k, enc(x)]));
+    else if (v instanceof PyBound) entry.push('P', enc(v.self), enc(v.fn));
     else throw new Error('valor no serializable');
     return { r: id };
   };
@@ -79,11 +85,14 @@ export function serializeVM(vm: VM, externals: Map<object, string> = new Map()):
   const frames = vm.frames.map((f) => ({
     mod: f.mod, ci: f.ci, ip: f.ip, stack: f.stack.map(enc), env: enc(f.env), globals: enc(f.globals),
     handlers: f.handlers.map((h) => ({ ...h })), curExc: enc(f.curExc), importOf: f.importOf,
+    classOf: f.classOf ? { name: f.classOf.name, bases: f.classOf.bases.map(enc) } : null,
+    initOf: enc(f.initOf),
   }));
   const modules: [string, Enc, boolean][] = [...vm.modules].map(([k, m]) => [k, enc(m.env), m.done]);
   return {
     v: 1, bundle: vm.bundle, heap, frames, modules,
     waiting: vm.waiting, finished: vm.finished, rng: vm.rngState, instr: vm.instrTotal,
+    excParent: [...vm.excParent],
   };
 }
 
@@ -108,6 +117,9 @@ function makeDecoder(heapIn: HeapEntry[], externals: Record<string, object>) {
       case 'O': objs[i] = new ModuleObj(e[1] as string); break;
       case 'X': objs[i] = new ExcType(e[1] as string); break;
       case 'Y': objs[i] = new ExcObj(e[1] as string, e[2] as string); break;
+      case 'C': objs[i] = new PyClass(e[1] as string, [], e[3] as string | null); break;
+      case 'N': objs[i] = new PyInstance(null as unknown as PyClass, e[2] as number); break;
+      case 'P': objs[i] = new PyBound(null, null as unknown as PyFunc); break;
       default: throw new Error('entrada de heap desconocida');
     }
   });
@@ -146,6 +158,19 @@ function makeDecoder(heapIn: HeapEntry[], externals: Record<string, object>) {
       case 'M': (o as BoundMethod).self = dec(e[1] as Enc); break;
       case 'R': for (const [k, v] of e[2] as [string, Enc][]) (o as PyRecord).f[k] = dec(v); break;
       case 'I': (o as Iter).src = dec(e[2] as Enc); break;
+      case 'C': {
+        const c = o as PyClass;
+        c.bases = (e[2] as Enc[]).map(dec) as unknown as PyClass[];
+        for (const [k, v] of e[4] as [string, Enc][]) c.attrs.set(k, dec(v));
+        break;
+      }
+      case 'N': {
+        const n = o as PyInstance;
+        n.cls = dec(e[1] as Enc) as unknown as PyClass;
+        for (const [k, v] of e[3] as [string, Enc][]) n.attrs.set(k, dec(v));
+        break;
+      }
+      case 'P': (o as PyBound).self = dec(e[1] as Enc); (o as PyBound).fn = dec(e[2] as Enc) as unknown as PyFunc; break;
     }
   });
 
@@ -165,7 +190,10 @@ export function deserializeVM(s: VMState, host: Host, externals: Record<string, 
     mod: f.mod, ci: f.ci, ip: f.ip, stack: f.stack.map(dec), env: dec(f.env) as unknown as Env,
     globals: dec(f.globals) as unknown as Env, handlers: f.handlers.map((h) => ({ ...h })),
     curExc: dec(f.curExc) as unknown as ExcObj | null, importOf: f.importOf, jsBoundary: false,
+    classOf: f.classOf ? { name: f.classOf.name, bases: f.classOf.bases.map(dec) } : null,
+    initOf: (f.initOf ? dec(f.initOf) : null) as unknown as PyInstance | null,
   }));
+  vm.excParent = new Map(s.excParent ?? []);
   for (const [name, env, done] of s.modules) vm.modules.set(name, { env: dec(env) as unknown as Env, done });
   vm.waiting = s.waiting;
   vm.finished = s.finished;

@@ -8,7 +8,7 @@ const COL: Record<number, [number, number, number]> = {
   [T.HIERBA]: [106, 162, 74], [T.CARRETERA]: [93, 100, 104], [T.HORMIGON]: [170, 164, 151], [T.MALEZA]: [85, 127, 55],
   [T.BOSQUE]: [52, 104, 48], [T.AGUA]: [47, 143, 166], [T.RUINA]: [142, 137, 125], [T.ROCA]: [122, 116, 104],
   [T.CULTIVO]: [138, 106, 58], [T.PUENTE]: [120, 120, 118], [T.BASE]: [238, 242, 239], [T.ESTRUCTURA]: [210, 214, 212],
-  [T.PUENTE_ROTO]: [47, 143, 166],
+  [T.PUENTE_ROTO]: [47, 143, 166], [T.CAMINO]: [214, 208, 191],
 };
 
 export class Minimap {
@@ -16,6 +16,7 @@ export class Minimap {
   base: HTMLCanvasElement;
   sig = '';
   W = 220;
+  god = false;
   H = 118;
 
   constructor(public canvas: HTMLCanvasElement, public game: Game, public me: string, public r: Renderer) {
@@ -45,9 +46,9 @@ export class Minimap {
   private rebuild(): void {
     const { w, h } = this.game.cfg;
     const img = new ImageData(w, h);
-    const pl = this.game.player(this.me)!;
+    const pl = this.game.player(this.me);
     for (let i = 0; i < w * h; i++) {
-      if (pl.known[i]) {
+      if (this.god || !pl || pl.known[i]) {
         const c = COL[this.game.terrain[i]] ?? [100, 100, 100];
         img.data.set([c[0], c[1], c[2], 255], i * 4);
       } else {
@@ -61,10 +62,10 @@ export class Minimap {
 
   draw(now: number): void {
     const g = this.game;
-    const pl = g.player(this.me)!;
+    const pl = g.player(this.me);
     let n = 0;
-    for (let i = 0; i < pl.known.length; i += 7) n += pl.known[i];
-    const sig = `${n}|${g.version}`;
+    if (pl && !this.god) for (let i = 0; i < pl.known.length; i += 7) n += pl.known[i];
+    const sig = `${n}|${g.version}|${g.terrainVersion}`;
     if (sig !== this.sig) { this.rebuild(); this.sig = sig; }
     const ctx = this.ctx;
     const { w, h } = g.cfg;
@@ -78,17 +79,16 @@ export class Minimap {
     ctx.drawImage(this.base, -0.5, -0.5);
     ctx.restore();
     // recursos conocidos
-    for (const id of pl.knownRes) {
-      const r = g.resources.get(id);
-      if (!r) continue;
+    for (const r of g.resources.values()) {
+      if (!this.god && pl && !pl.knownRes.has(r.id)) continue;
       const [px, py] = this.map(r.x, r.y);
-      ctx.fillStyle = r.kind === 'hierro' ? '#e0824a' : r.kind === 'cobre' ? '#4fe0b5' : r.kind === 'silicio' ? '#bfe8ff' : r.kind === 'chatarra' ? '#b6bec2' : '#b6e86a';
+      ctx.fillStyle = r.kind === 'hierro' ? '#e0824a' : r.kind === 'cobre' ? '#4fe0b5' : r.kind === 'silicio' ? '#bfe8ff' : '#b6bec2';
       ctx.fillRect(px - 1, py - 1, 2, 2);
     }
     // bases
     for (const p of g.players.values()) {
       const b = p.p.base;
-      if (!pl.known[b.y * w + b.x]) continue;
+      if (!this.god && pl && !pl.known[b.y * w + b.x]) continue;
       const [px, py] = this.map(b.x + 0.5, b.y + 0.5);
       ctx.fillStyle = p.p.color;
       ctx.beginPath(); ctx.arc(px, py, 3.2, 0, Math.PI * 2); ctx.fill();
@@ -97,10 +97,10 @@ export class Minimap {
       ctx.stroke();
     }
     // unidades propias
-    for (const u of g.unitsOf(this.me)) {
+    for (const u of this.god ? [...g.units.values()].map((r) => r.u) : g.unitsOf(this.me)) {
       const [ux, uy] = G.lerpPos(u, now);
       const [px, py] = this.map(ux, uy);
-      ctx.fillStyle = u.id === this.r.selectedUnit ? '#ffffff' : '#2fd4c0';
+      ctx.fillStyle = u.id === this.r.selectedUnit ? '#ffffff' : this.god ? g.player(u.owner)?.p.color ?? '#2fd4c0' : '#2fd4c0';
       ctx.beginPath(); ctx.arc(px, py, 2.2, 0, Math.PI * 2); ctx.fill();
     }
     // encuadre de cámara

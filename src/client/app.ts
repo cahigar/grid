@@ -3,7 +3,9 @@ import { API } from '../sim/api';
 import { checkSyntax } from '../sim/lang/compiler';
 import { Game, cargoCount, fmtDur } from '../sim/world/game';
 import { RES_KINDS, RESOURCES, T, TERRAIN, UNIT_TYPES, type LogEntry, type ResKind, type Unit } from '../sim/world/types';
-import type { LocalBackend } from './backend';
+import type { PracticeSession, Session } from './session';
+import { DEFAULT_PROGRAM } from '../sim/world/content';
+import { BUILDINGS, HACK } from '../sim/world/types';
 import { Minimap } from './render/minimap';
 import { Renderer } from './render/renderer';
 import { drawGallery } from './render/gallery';
@@ -16,10 +18,11 @@ const $ = <E extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = 
 const STATUS_LABEL: Record<string, string> = {
   RUNNING: 'Activo', IDLE: 'En espera', DONE: 'Terminado', ERROR: 'Error', HIBERNATING: 'Hibernando', BLOCKED: 'Bloqueado',
 };
+const INV_DEFAULT: Record<string, true> = { 'minero.py': true, 'granjero.py': true, 'constructor.py': true, 'hacker.py': true, 'aspersor.py': true };
 const TERRAIN_LABEL: Record<string, string> = {
   hierba: 'Hierba', carretera: 'Carretera antigua', hormigon: 'Hormigón', maleza: 'Maleza', bosque: 'Bosque', agua: 'Agua',
   ruina: 'Ruina', roca: 'Roca', cultivo: 'Huerto', puente: 'Puente', base: 'Centro operativo', estructura: 'Instalación',
-  puente_roto: 'Puente derruido',
+  puente_roto: 'Puente derruido', huerto: 'Huerto', camino: 'Camino', edificio: 'Edificio',
 };
 
 const LOGO = `<svg class="logo" viewBox="0 0 32 32"><path d="M16 2l12 7v14l-12 7-12-7V9z" fill="none" stroke="#2fd4c0" stroke-width="2"/><path d="M16 9l6 3.5v7L16 23l-6-3.5v-7z" fill="#2fd4c0" opacity=".25"/><path d="M10 12.5L16 16l6-3.5M16 16v7" stroke="#2fd4c0" stroke-width="1.6" fill="none"/><circle cx="16" cy="16" r="2" fill="#f2a93b"/></svg>`;
@@ -37,11 +40,23 @@ function fmtHM(t: number): string {
   const d = new Date(t);
   return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 }
+function fmtLeft(ms: number): string {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
 function batClass(b: number): string {
   return b < 20 ? 'low' : b < 45 ? 'mid' : '';
 }
 
 interface Objective { text: string; progress: () => [number, number] }
+
+export interface AppOptions {
+  zoom?: number;
+  onReady?: (app: App) => void;
+  /** panel lateral personalizado (tutorial, partida) en lugar de los objetivos */
+  sidePanel?: (app: App, el: HTMLElement) => void;
+  hideSettings?: boolean;
+}
 
 export class App {
   r: Renderer;
@@ -50,7 +65,7 @@ export class App {
   selected: string | null = null;
   editorOpen = false;
   target: string | null = null;
-  currentFile = 'main.py';
+  currentFile = 'minero.py';
   dirty = new Set<string>();
   rkTab = 'general';
   lastUi = 0;
@@ -59,30 +74,81 @@ export class App {
   seenEvents = 0;
   simResult: { text: string; logs: LogEntry[]; unit: string } | null = null;
 
-  constructor(public be: LocalBackend) {
+  raf = 0;
+  alive = true;
+  private cleanups: (() => void)[] = [];
+
+  constructor(public be: Session, public opts: AppOptions = {}) {
     this.buildDom();
     const canvas = $<HTMLCanvasElement>('#world');
     this.r = new Renderer(canvas, be.game, be.me);
+    this.r.god = be.god;
     this.mm = new Minimap($<HTMLCanvasElement>('#minimap'), be.game, be.me, this.r);
+    this.mm.god = be.god;
     this.r.resize();
-    const pl = be.game.player(be.me)!;
-    this.r.centerOn(pl.p.base.x + 1, pl.p.base.y + 3);
-    this.r.cam.zoom = 1.25;
-    const first = be.game.unitsOf(be.me)[0];
-    this.select(first?.id ?? null, false);
+    const pl = be.game.player(be.me);
+    if (pl) {
+      this.r.centerOn(pl.p.base.x + 1, pl.p.base.y + 3);
+      this.r.cam.zoom = opts.zoom ?? 1.25;
+    } else {
+      this.r.centerOn(be.game.cfg.w / 2, be.game.cfg.h / 2);
+      this.r.cam.zoom = opts.zoom ?? 0.55;
+    }
+    const first = this.myUnits()[0];
+    this.select(be.god ? null : first?.id ?? null, false);
     this.target = first?.id ?? null;
     this.initEditor();
     this.bindInput();
     this.seenEvents = be.game.events.length ? be.game.events[be.game.events.length - 1].t : 0;
-    this.prevStorage = { ...pl.p.storage };
-    window.addEventListener('resize', () => this.r.resize());
-    window.addEventListener('beforeunload', () => this.be.save());
-    document.addEventListener('visibilitychange', () => { if (document.hidden) this.be.save(); });
+    this.prevStorage = { ...(this.viewPlayer()?.p.storage ?? {}) };
+    const onResize = () => this.r.resize();
+    const onUnload = () => this.be.save();
+    const onVis = () => { if (document.hidden) this.be.save(); };
+    window.addEventListener('resize', onResize);
+    window.addEventListener('beforeunload', onUnload);
+    document.addEventListener('visibilitychange', onVis);
+    this.cleanups.push(() => window.removeEventListener('resize', onResize), () => window.removeEventListener('beforeunload', onUnload), () => document.removeEventListener('visibilitychange', onVis));
     if (/galeria/.test(location.search + location.hash)) this.showGallery();
-    else if (be.isNew) this.showWelcome();
+    else if (be.kind === 'practica' && be.isNew) this.showWelcome();
     else if (be.report) this.showReport();
     if (!be.storageOk) this.toast('Este navegador no permite guardar: la partida no persistirá al cerrar', 'warn');
-    requestAnimationFrame(this.loop);
+    opts.onReady?.(this);
+    this.raf = requestAnimationFrame(this.loop);
+  }
+
+  destroy(): void {
+    this.alive = false;
+    cancelAnimationFrame(this.raf);
+    this.cleanups.forEach((f) => f());
+    this.be.save();
+  }
+
+  /** unidades que este jugador controla (todas en modo profesor) */
+  myUnits(): Unit[] {
+    if (this.be.god) return [...this.game.units.values()].map((r) => r.u);
+    return this.game.unitsOf(this.be.me);
+  }
+
+  /** jugador cuyo código/almacén se está mirando */
+  owner(): string {
+    if (!this.be.god) return this.be.me;
+    const u = this.target ? this.game.units.get(this.target)?.u : null;
+    return u?.owner ?? [...this.game.players.keys()][0] ?? this.be.me;
+  }
+
+  viewPlayer() {
+    return this.game.player(this.owner());
+  }
+
+  files(): Record<string, string> {
+    return this.be.filesOf(this.owner());
+  }
+
+  defaultFileFor(u: Unit | null | undefined): string {
+    if (!u) return Object.keys(this.files())[0] ?? 'minero.py';
+    if (u.program && (u.program.name + '.py') in this.files()) return u.program.name + '.py';
+    const d = DEFAULT_PROGRAM[u.type];
+    return d && d in this.files() ? d : Object.keys(this.files())[0] ?? d;
   }
 
   get game(): Game { return this.be.game; }
@@ -96,7 +162,8 @@ export class App {
         <div class="res-bar" id="resbar"></div>
         <div class="spacer"></div>
         <div class="clock" title="Hora del mundo">${ICON.clock}<b id="clock">--:--</b></div>
-        <div class="seg" id="speed" title="Acelerar el tiempo (sólo en la demo)">
+        <div id="hostctl"></div>
+        <div class="seg" id="speed" title="Acelerar el tiempo (sólo en práctica)">
           <button data-s="1" class="on">1×</button><button data-s="10">10×</button><button data-s="60">60×</button>
         </div>
         <button class="tb-btn" id="btn-rank" title="Ranking diario (R)">${ICON.trophy}<span class="lbl">Ranking</span></button>
@@ -146,12 +213,15 @@ export class App {
       <div id="tileinfo"></div>
       <div id="toasts"></div>
       <div id="modal-root"></div>`;
+    if (this.be.kind !== 'practica') $('#speed').style.display = 'none';
+    if (this.opts.hideSettings || this.be.kind === 'host' || this.be.kind === 'alumno') $('#btn-set').style.display = 'none';
     $('#resbar').innerHTML = RES_KINDS.map((k) => `<div class="res" id="res-${k}" title="${RESOURCES[k].label}">${resIcon(k)}<span class="n">0</span></div>`).join('');
     this.renderManual('');
   }
 
   // ───────────── bucle ─────────────
   loop = (t: number): void => {
+    if (!this.alive) return;
     this.be.tick(t);
     const now = this.be.now(t);
     this.r.draw(now, t);
@@ -164,14 +234,21 @@ export class App {
       this.lastSave = t;
       this.be.save();
     }
-    requestAnimationFrame(this.loop);
+    this.raf = requestAnimationFrame(this.loop);
   };
 
   updateUi(now: number): void {
     const g = this.game;
-    const pl = g.player(this.be.me)!;
-    $('#colony').textContent = pl.p.name;
-    $('#clock').textContent = fmtClock(now);
+    const pl = this.viewPlayer();
+    if (!pl) return;
+    $('#colony').textContent = this.be.god ? `Profesor · viendo ${pl.p.name}` : pl.p.name;
+    const ph = g.phase(now);
+    const clock = $('#clock');
+    if (ph === 'prep') clock.innerHTML = `<span class="ph prep">Preparación</span> ${fmtLeft(g.playStart - now)}`;
+    else if (ph === 'play') clock.innerHTML = `<span class="ph play">Partida</span> ${fmtLeft(g.playEnd - now)}`;
+    else if (ph === 'end') clock.innerHTML = '<span class="ph end">Terminada</span>';
+    else clock.textContent = fmtClock(now);
+    if (this.be.paused) clock.innerHTML += ' <span class="ph end">PAUSA</span>';
     for (const k of RES_KINDS) {
       const el = $(`#res-${k}`);
       const v = Math.floor(pl.p.storage[k]);
@@ -187,30 +264,58 @@ export class App {
     }
     this.renderUnits(now);
     this.renderInspector(now);
-    this.renderObjective();
+    if (this.opts.sidePanel) this.opts.sidePanel(this, $('#objective'));
+    else if (this.be.kind === 'practica') this.renderObjective();
+    else this.renderMatchPanel(now);
     if (this.editorOpen) this.renderConsole(now);
     this.checkEvents();
+    if ((this.be.filesVersion ?? 0) !== this.seenFilesVersion) {
+      this.seenFilesVersion = this.be.filesVersion ?? 0;
+      const cur = this.files()[this.currentFile];
+      if (cur !== undefined && cur !== this.ed.view.state.doc.toString()) {
+        this.ed.forget(this.currentFile);
+        this.ed.open(this.currentFile, cur);
+        this.toast(`${this.currentFile} ha cambiado desde fuera (profesor o hackeo)`, 'warn');
+      }
+      this.renderTabs();
+    }
   }
 
   // ───────────── unidades ─────────────
   renderUnits(now: number): void {
-    const units = this.game.unitsOf(this.be.me);
+    const units = this.myUnits();
     $('#ucount').textContent = String(units.length);
-    const html = units.map((u) => {
+    const card = (u: Unit) => {
       const st = unitStatus(u);
       const act = u.action && u.action.end > now ? u.action.label : u.program ? u.program.name + '.py' : 'sin programa';
+      const info = UNIT_TYPES[u.type];
+      const extra = info.cargo ? `${cargoCount(u)}/${info.cargo}` : info.water ? `💧${Math.floor(u.water)}` : '';
       return `<div class="ucard ${u.id === this.selected ? 'sel' : ''}" data-u="${esc(u.id)}">
         <div class="ic ${u.type}">${ICON[u.type]}</div>
         <div class="top"><span class="name">${esc(u.name)}</span><span class="pill ${st}">${STATUS_LABEL[st]}</span></div>
-        <div class="sub"><span class="mini-bat"><i class="${batClass(u.battery)}" style="width:${u.battery.toFixed(0)}%"></i></span>
-          <span>${cargoCount(u)}/${UNIT_TYPES[u.type].cargo}</span><span class="act">${esc(act)}</span></div>
+        <div class="sub">${info.fixed ? '' : `<span class="mini-bat"><i class="${batClass(u.battery)}" style="width:${u.battery.toFixed(0)}%"></i></span>`}
+          <span>${extra}</span><span class="act">${esc(act)}</span></div>
       </div>`;
-    }).join('');
+    };
+    let html: string;
+    if (this.be.god) {
+      const open = this.selected ? this.game.units.get(this.selected)?.u.owner : null;
+      html = [...this.game.players.values()].map((p) => {
+        const us = units.filter((u) => u.owner === p.p.id);
+        const errs = us.filter((u) => u.status === 'ERROR' || (u.blocked && u.blocked.attempts >= 5)).length;
+        const running = us.filter((u) => u.status === 'RUNNING').length;
+        return `<div class="pgroup ${open === p.p.id ? 'open' : ''}" data-p="${esc(p.p.id)}">
+          <div class="phead"><span class="dot" style="background:${p.p.color}"></span><span class="pn">${esc(p.p.name)}</span>
+          <span class="ps">${errs ? `<span class="pill ERROR">${errs}✖</span>` : ''}<span class="pill RUNNING">${running}▶</span><b>${this.game.score(p)}</b></span></div>
+          ${open === p.p.id ? us.map(card).join('') : ''}</div>`;
+      }).join('');
+    } else html = units.map(card).join('');
     const list = $('#ulist');
     if (list.innerHTML !== html) list.innerHTML = html;
     // opciones de destino del editor
     const sel = $<HTMLSelectElement>('#ed-target');
-    const opts = units.map((u) => `<option value="${esc(u.id)}" ${u.id === this.target ? 'selected' : ''}>${esc(u.name)}</option>`).join('');
+    const pool = this.be.god ? units.filter((u) => u.owner === this.owner()) : units;
+    const opts = pool.map((u) => `<option value="${esc(u.id)}" ${u.id === this.target ? 'selected' : ''}>${esc(u.name)} · ${UNIT_TYPES[u.type].label}</option>`).join('');
     if (sel.dataset.sig !== opts) { sel.innerHTML = opts; sel.dataset.sig = opts; }
   }
 
@@ -240,6 +345,21 @@ export class App {
     const tile = this.r.selectedTile;
     if (!u && !tile) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
+    if (u && !this.be.canControl(u.id)) {
+      const op = g.player(u.owner);
+      const sig = JSON.stringify([u.id, u.x, u.y, u.status, u.action?.label]);
+      if (sig === this.inspSig && !force) return;
+      this.inspSig = sig;
+      el.innerHTML = `
+        <div class="insp-head"><div class="ic" style="color:${op?.p.color}">${ICON[u.type]}</div><div style="flex:1;min-width:0"><div class="nm">${esc(u.name)}</div><div class="ty">${UNIT_TYPES[u.type].label} de <b style="color:${op?.p.color}">${esc(op?.p.name ?? '?')}</b></div></div>
+          <button class="icon-btn" data-act="close" title="Cerrar">${ICON.close}</button></div>
+        <div class="insp-body">
+          <div class="stat-grid"><div class="stat"><div class="k">Posición</div><div class="v">(${u.x}, ${u.y})</div></div>
+          <div class="stat"><div class="k">Haciendo</div><div class="v">${u.action && u.action.end > now ? esc(u.action.label) : '—'}</div></div></div>
+          <div class="alert amber" style="border-color:rgba(255,93,115,.4);background:rgba(255,93,115,.07)"><div class="t" style="color:#ff5d73">Unidad rival</div>No puedes ver su código… salvo que tu dron hacker se acerque. Usa <code>radar()</code> para detectarla desde tus programas.</div>
+        </div>`;
+      return;
+    }
     if (u) {
       const info = UNIT_TYPES[u.type];
       const st = unitStatus(u);
@@ -259,12 +379,26 @@ export class App {
         ? `<div class="alert red"><div class="t">${esc(u.error.type)} · línea ${u.error.line}${u.error.mod !== '__main__' ? ` de ${esc(u.error.mod)}.py` : ''}</div>
            <div>${esc(u.error.msg)}</div><button class="link-btn" data-act="goerr">Ver en el código →</button></div>`
         : '';
+      const hacked = u.hacked && now - u.hacked.t < 120_000
+        ? `<div class="alert red"><div class="t">⚠ Hackeado por ${esc(u.hacked.by)}</div><div class="kv"><span>Línea</span><span>${u.hacked.line}</span><span>Antes</span><span>${esc(u.hacked.before)}</span><span>Ahora</span><span>${esc(u.hacked.after)}</span></div>
+           <button class="link-btn" data-act="restore">Restaurar la versión anterior del archivo →</button></div>`
+        : '';
+      const wet = u.wetUntil > now ? `<div class="alert amber" style="border-color:rgba(159,227,240,.5)"><div class="t" style="color:#9fe3f0">Mojado</div>Un aspersor enemigo te ha alcanzado: ${Math.ceil((u.wetUntil - now) / 1000)} s sin actuar.</div>` : '';
+      const signal = g.cfg.match && !info.fixed && !g.inSignal(u) ? '<div class="alert amber"><div class="t">Sin señal</div>Fuera del alcance de la base y de tus antenas: cada acción tarda el doble.</div>' : '';
       const hib = u.status === 'HIBERNATING'
         ? `<div class="alert amber"><div class="t">Hibernando</div>Batería agotada. Los paneles recargan ~2 % por minuto; el programa continuará solo. Consejo: vuelve a la base y usa <code>recargar()</code> antes de quedarte sin energía.</div>`
         : '';
       const cargo = Object.entries(u.cargo).filter(([, n]) => n! > 0).map(([k, n]) => `<span class="chip">${resIcon(k)}${n}</span>`).join('') || '<span class="chip">vacía</span>';
-      const files = Object.keys(this.be.files);
-      const fileOpts = files.map((f) => `<option ${f === (u.program ? u.program.name + '.py' : this.currentFile) ? 'selected' : ''}>${esc(f)}</option>`).join('');
+      const files = Object.keys(this.files());
+      const defFile = this.defaultFileFor(u);
+      const fileOpts = files.map((f) => `<option ${f === defFile ? 'selected' : ''}>${esc(f)}</option>`).join('');
+      const third = info.cargo
+        ? `<div class="stat"><div class="k">Carga</div><div class="v">${cargoCount(u)} / ${info.cargo}</div><div class="bar"><i class="teal" style="width:${(cargoCount(u) / info.cargo) * 100}%"></i></div></div>`
+        : info.water
+          ? `<div class="stat"><div class="k">Agua</div><div class="v">${Math.floor(u.water)} / ${info.water}</div><div class="bar"><i class="teal" style="width:${(u.water / info.water) * 100}%"></i></div></div>`
+          : u.type === 'hacker'
+            ? `<div class="stat"><div class="k">Módulo de hackeo</div><div class="v">${u.hackReadyAt > now ? `enfría ${Math.ceil((u.hackReadyAt - now) / 1000)} s` : 'listo'}</div></div>`
+            : `<div class="stat"><div class="k">Señal</div><div class="v">${g.inSignal(u) ? 'sí' : 'no'}</div></div>`;
       const sig = JSON.stringify([u.id, st, a?.label, a?.end, u.battery.toFixed(0), cargoCount(u), u.logs.length, u.logs[u.logs.length - 1]?.n, u.blocked?.attempts, u.x, u.y, u.program?.name, Math.floor(now / 250), files.length]);
       if (sig === this.inspSig && !force) return;
       this.inspSig = sig;
@@ -276,12 +410,12 @@ export class App {
         <div class="insp-body">
           <div class="stat-grid">
             <div class="stat"><div class="k">Posición</div><div class="v">(${u.x}, ${u.y})</div></div>
-            <div class="stat"><div class="k">Energía</div><div class="v">${u.battery.toFixed(0)} %</div><div class="bar"><i class="${batClass(u.battery)}" style="width:${u.battery.toFixed(0)}%"></i></div></div>
-            <div class="stat"><div class="k">Carga</div><div class="v">${cargoCount(u)} / ${info.cargo}</div><div class="bar"><i class="teal" style="width:${info.cargo ? (cargoCount(u) / info.cargo) * 100 : 0}%"></i></div></div>
+            ${info.fixed ? `<div class="stat"><div class="k">Tipo</div><div class="v">edificio</div></div>` : `<div class="stat"><div class="k">Energía</div><div class="v">${u.battery.toFixed(0)} %</div><div class="bar"><i class="${batClass(u.battery)}" style="width:${u.battery.toFixed(0)}%"></i></div></div>`}
+            ${third}
             <div class="stat"><div class="k">Programa</div><div class="v">${u.program ? esc(u.program.name) : '—'}</div></div>
           </div>
-          ${actHtml}${blocked}${error}${hib}
-          <div class="chips">${cargo}<span class="chip" title="Radio del escáner">◎ radio ${info.scan}</span><span class="chip" title="Multiplicador de tiempo al moverse">⇢ ×${info.moveMul}</span>${info.air ? '<span class="chip">aérea</span>' : ''}</div>
+          ${actHtml}${hacked}${wet}${signal}${blocked}${error}${hib}
+          <div class="chips">${info.cargo ? cargo : ''}<span class="chip" title="Radio del escáner">◎ radio ${info.scan}</span>${info.air ? '<span class="chip">vuela</span>' : ''}<span class="chip">${esc(info.actions.filter((x) => !['mover', 'mirar', 'esperar', 'radar', 'descargar', 'recargar', 'escanear'].includes(x)).join(' · '))}</span></div>
           <div class="btn-row"><select class="sel" id="insp-file" style="flex:1">${fileOpts}</select>
             <button class="btn go" data-act="run" style="flex:none;padding:0 14px">${ICON.play} Ejecutar</button>
             <button class="btn danger" data-act="stop" style="flex:none;padding:0 12px" ${u.program ? '' : 'disabled'}>${ICON.stop}</button></div>
@@ -292,14 +426,18 @@ export class App {
       const nl = $('.logs', el);
       nl.scrollTop = keepScroll >= 0 ? keepScroll : nl.scrollHeight;
     } else if (tile) {
-      const pl = g.player(this.be.me)!;
+      const pl = g.player(this.be.me);
       const k = tile.y * g.cfg.w + tile.x;
-      const known = pl.known[k] === 1;
+      const known = this.be.god || !pl || pl.known[k] === 1;
       const t = g.terrain[k] as T;
       const key = TERRAIN[t].key;
       const rid = g.resAt.get(k);
-      const res = rid !== undefined && pl.knownRes.has(rid) ? g.resources.get(rid) : undefined;
-      const sig = JSON.stringify([tile, known, res?.amount]);
+      const res = rid !== undefined && (this.be.god || pl?.knownRes.has(rid)) ? g.resources.get(rid) : undefined;
+      const par = known ? g.parcelAt(tile.x, tile.y) : undefined;
+      const bid = g.bldAt.get(k);
+      const bld = bid !== undefined && known ? g.buildings.get(bid) : undefined;
+      const drop = known ? g.drops.get(k) : undefined;
+      const sig = JSON.stringify([tile, known, res?.amount, par && [par.planted, Math.floor(par.mat), Math.floor(par.hum)], bld?.id, drop]);
       if (sig === this.inspSig && !force) return;
       this.inspSig = sig;
       el.innerHTML = `
@@ -308,10 +446,14 @@ export class App {
         <div class="insp-body">
           ${known ? `<div class="stat-grid">
             <div class="stat"><div class="k">terreno(x, y)</div><div class="v">"${key}"</div></div>
-            <div class="stat"><div class="k">mover() hasta aquí</div><div class="v">${TERRAIN[t].move ? (TERRAIN[t].move / 1000).toLocaleString('es-ES') + ' s' : 'bloqueado'}</div></div></div>`
+            <div class="stat"><div class="k">mover() por tierra</div><div class="v">${TERRAIN[t].move ? ((TERRAIN[t].move * g.ts) / 1000).toLocaleString('es-ES', { maximumFractionDigits: 2 }) + ' s' : 'bloqueado'}</div></div></div>`
             : '<div class="alert amber"><div class="t">Niebla</div>Nadie de tu colonia ha visto esta casilla. Programa una unidad para explorarla.</div>'}
           ${res ? `<div class="alert amber" style="border-color:rgba(47,212,192,.35);background:rgba(47,212,192,.07)"><div class="t" style="color:var(--teal)">Recurso · ${RESOURCES[res.kind].label}</div>
-            <div class="kv"><span>tipo</span><span>"${res.kind}"</span><span>cantidad</span><span>${Math.floor(res.amount)} / ${res.max}</span><span>calidad</span><span>${'★'.repeat(res.quality)}${'☆'.repeat(3 - res.quality)}</span><span>extraer()</span><span>${(RESOURCES[res.kind].ms / 1000).toLocaleString('es-ES')} s / ud</span><span>renovable</span><span>${RESOURCES[res.kind].regen ? 'sí, lentamente' : 'no'}</span></div></div>` : ''}
+            <div class="kv"><span>tipo</span><span>"${res.kind}"</span><span>cantidad</span><span>${Math.floor(res.amount)} / ${res.max}</span><span>calidad</span><span>${'★'.repeat(res.quality)}${'☆'.repeat(3 - res.quality)}</span><span>picar()</span><span>${((RESOURCES[res.kind].ms * g.ts) / 1000).toLocaleString('es-ES', { maximumFractionDigits: 2 })} s / ud</span><span>puntos</span><span>${RESOURCES[res.kind].value} por unidad</span></div></div>` : ''}
+          ${par ? `<div class="alert amber" style="border-color:rgba(143,209,79,.4);background:rgba(143,209,79,.07)"><div class="t" style="color:var(--green)">Parcela de huerto${par.owner ? ' · ' + esc(g.player(par.owner)?.p.name ?? '') : ''}</div>
+            <div class="kv"><span>plantada</span><span>${par.planted ? 'True' : 'False'}</span><span>humedad</span><span>${Math.round(par.hum)} ${par.hum > 30 ? '(crece)' : '(seca: no crece)'}</span><span>madurez</span><span>${Math.floor(par.mat)} %</span><span>lista</span><span>${par.planted && par.mat >= 100 ? 'True' : 'False'}</span></div></div>` : ''}
+          ${bld ? `<div class="alert amber"><div class="t">${esc(BUILDINGS[bld.kind].label)} de ${esc(g.player(bld.owner)?.p.name ?? '')}</div>${esc(BUILDINGS[bld.kind].desc)}</div>` : ''}
+          ${drop && Object.values(drop).some((n) => n! > 0) ? `<div class="chips">${Object.entries(drop).filter(([, n]) => n! > 0).map(([kk, n]) => `<span class="chip">${resIcon(kk)} ${n} en el suelo</span>`).join('')}</div>` : ''}
           <div class="chips"><span class="chip">x = ${tile.x}</span><span class="chip">y = ${tile.y}</span></div>
         </div>`;
     }
@@ -325,15 +467,28 @@ export class App {
   objectives(): Objective[] {
     const g = this.game;
     const pl = g.player(this.be.me)!;
-    const libUsed = () => Object.entries(this.be.files).some(([n, s]) => n !== 'main.py' && /^def\s/m.test(s)) && g.unitsOf(this.be.me).some((u) => u.program && /^\s*(from|import)\s+\w+/m.test(u.program.bundle.main));
+    const libUsed = () => Object.entries(this.files()).some(([n, src]) => !(n in INV_DEFAULT) && /^def\s/m.test(src)) && this.myUnits().some((u) => u.program && /^\s*(from|import)\s+\w+/m.test(u.program.bundle.main));
     return [
-      { text: 'Programa tu dron para traer mineral a la base', progress: () => [Math.min(10, pl.p.totals.units ?? 0), 10] },
+      { text: 'Programa el minero: pica una veta, recoge y descarga en la base', progress: () => [Math.min(10, pl.p.totals.mined), 10] },
+      { text: 'Programa el dron granjero: planta, riega y recoge una cosecha', progress: () => [Math.min(1, pl.p.totals.harvested), 1] },
       { text: 'Crea una función en tu biblioteca (nav.py) e impórtala desde un programa', progress: () => [libUsed() ? 1 : 0, 1] },
-      { text: 'Fabrica una segunda unidad con fabricar()', progress: () => [Math.min(2, g.unitsOf(this.be.me).length), 2] },
-      { text: 'Descubre silicio en las ruinas de la ciudad', progress: () => [[...pl.knownRes].some((id) => g.resources.get(id)?.kind === 'silicio') ? 1 : 0, 1] },
-      { text: 'Explora 600 casillas del valle', progress: () => [Math.min(600, pl.known.reduce((a, b) => a + b, 0)), 600] },
-      { text: 'Acumula 150 de valor entregado', progress: () => [Math.min(150, Math.floor(pl.p.totals.delivered)), 150] },
+      { text: 'Construye un panel solar o una antena con el constructor', progress: () => [g.ownBuildings(this.be.me).filter((b) => b.kind === 'panel' || b.kind === 'antena').length ? 1 : 0, 1] },
+      { text: 'Hackea una unidad de una colonia rival con el dron hacker', progress: () => [Math.min(1, pl.p.totals.hacks), 1] },
+      { text: 'Consigue 150 puntos', progress: () => [Math.min(150, Math.floor(pl.p.totals.delivered)), 150] },
     ];
+  }
+
+  renderMatchPanel(now: number): void {
+    const g = this.game;
+    const el = $('#objective');
+    const rows = g.rankings()[0].rows;
+    const ph = g.phase(now);
+    const meIdx = rows.findIndex((r) => r.id === this.be.me);
+    const top = rows.slice(0, this.be.god ? 8 : 5);
+    const html = `<div class="lbl">${ICON.trophy} ${ph === 'prep' ? 'Preparación: programa tus unidades' : ph === 'play' ? 'Partida en curso' : ph === 'end' ? 'Partida terminada' : 'Clasificación'}</div>
+      ${meIdx >= 0 ? `<div class="txt">Tus puntos: <b style="font-size:18px">${rows[meIdx].value}</b> · puesto ${meIdx + 1} de ${rows.length}</div>` : ''}
+      ${top.map((r, i) => `<div class="mini-rk ${r.id === this.be.me ? 'me' : ''}"><span>${i + 1}</span><i style="background:${r.color}"></i><span class="n">${esc(r.name)}</span><b>${r.value}</b></div>`).join('')}`;
+    if (el.innerHTML !== html) el.innerHTML = html;
   }
 
   renderObjective(): void {
@@ -358,7 +513,7 @@ export class App {
   checkEvents(): void {
     for (const e of this.game.events) {
       if (e.t <= this.seenEvents) continue;
-      if (e.owner !== this.be.me) continue;
+      if (e.owner !== this.be.me && !this.be.god) continue;
       const u = this.game.units.get(e.unit)?.u;
       if (e.kind === 'error' && u) this.toast(`${u.name}: ${e.text} en la línea ${u.error?.line ?? '?'}`, 'err', () => { this.select(u.id); this.openEditor(); this.gotoError(); });
       if (e.kind === 'build') this.toast(`Nueva unidad: ${e.text}`, 'ok');
@@ -367,7 +522,7 @@ export class App {
     const evs = this.game.events;
     if (evs.length) this.seenEvents = Math.max(this.seenEvents, evs[evs.length - 1].t);
     // bloqueos nuevos
-    for (const u of this.game.unitsOf(this.be.me)) {
+    for (const u of this.myUnits()) {
       if (u.blocked && u.blocked.attempts === 5 && !(u as Unit & { _t?: boolean })._t) {
         (u as Unit & { _t?: boolean })._t = true;
         this.toast(`${u.name} está BLOQUEADO: ${u.blocked.instr}`, 'err', () => this.select(u.id));
@@ -388,20 +543,20 @@ export class App {
   // ───────────── editor ─────────────
   initEditor(): void {
     this.ed = new CodeEditor($('#ed-code'), {
-      files: () => this.be.files,
+      files: () => this.files(),
       onChange: (name, src) => {
-        this.be.saveFile(name, src);
+        this.be.saveFile(this.owner(), name, src);
         this.dirty.add(name);
         this.renderTabs();
         this.updateSyntax();
       },
       onRun: () => this.runCurrent(),
       onSave: () => {
-        this.be.saveFile(this.currentFile, this.ed.view.state.doc.toString(), true);
+        this.be.saveFile(this.owner(), this.currentFile, this.ed.view.state.doc.toString(), true);
         this.dirty.delete(this.currentFile);
         this.be.save();
         this.renderTabs();
-        this.toast(`${this.currentFile} guardado (versión ${this.be.versions(this.currentFile).length})`, 'ok');
+        this.toast(`${this.currentFile} guardado (versión ${this.be.versions(this.owner(), this.currentFile).length})`, 'ok');
       },
       runtimeError: (file) => {
         const u = this.target ? this.game.units.get(this.target)?.u : null;
@@ -410,30 +565,41 @@ export class App {
         return f === file ? { line: u.error.line, msg: `${u.error.type}: ${u.error.msg}` } : null;
       },
     });
-    this.openFile(this.currentFile in this.be.files ? this.currentFile : Object.keys(this.be.files)[0] ?? 'main.py');
+    const tu = this.target ? this.game.units.get(this.target)?.u : null;
+    this.openFile(this.defaultFileFor(tu));
   }
 
+  private edOwner = '';
+  private seenFilesVersion = 0;
+
   openFile(name: string): void {
-    if (!(name in this.be.files)) this.be.saveFile(name, '');
+    if (this.edOwner !== this.owner()) {
+      this.ed.forgetAll();
+      this.edOwner = this.owner();
+      this.dirty.clear();
+    }
+    if (!(name in this.files())) this.be.saveFile(this.owner(), name, '');
     this.currentFile = name;
-    this.ed.open(name, this.be.files[name]);
+    this.ed.open(name, this.files()[name]);
     this.renderTabs();
     this.updateSyntax();
   }
 
   renderTabs(): void {
-    const files = Object.keys(this.be.files).sort((a, b) => (a === 'main.py' ? -1 : b === 'main.py' ? 1 : a.localeCompare(b)));
+    const order = ['minero.py', 'granjero.py', 'constructor.py', 'hacker.py', 'aspersor.py'];
+    const rank = (f: string) => (order.includes(f) ? order.indexOf(f) : 10);
+    const files = Object.keys(this.files()).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
     $('#tabs').innerHTML = files.map((f) => {
-      const running = this.game.unitsOf(this.be.me).some((u) => u.program && u.program.name + '.py' === f);
-      const lib = !running && f !== 'main.py' && !/while\s+True/.test(this.be.files[f]);
+      const running = this.myUnits().some((u) => u.program && u.program.name + '.py' === f);
+      const lib = !running && !(f in INV_DEFAULT) && !/while\s+True/.test(this.files()[f]);
       return `<div class="tab ${f === this.currentFile ? 'on' : ''} ${lib ? 'lib' : ''}" data-f="${esc(f)}" title="${lib ? 'Módulo de biblioteca' : 'Programa'}">
         ${lib ? ICON.box : ICON.file}<span>${esc(f)}</span>${this.dirty.has(f) ? '<span class="dirty" title="Cambios sin guardar como versión"></span>' : ''}${running ? '<span class="pill RUNNING" style="padding:1px 5px">▶</span>' : ''}
-        ${f !== 'main.py' ? `<span class="x" data-del="${esc(f)}" title="Eliminar">✕</span>` : ''}</div>`;
+        ${!(f in INV_DEFAULT) ? `<span class="x" data-del="${esc(f)}" title="Eliminar">✕</span>` : ''}</div>`;
     }).join('');
   }
 
   updateSyntax(): void {
-    const e = checkSyntax(this.be.files[this.currentFile] ?? '');
+    const e = checkSyntax(this.files()[this.currentFile] ?? '');
     const el = $('#ed-syntax');
     el.className = e ? 'bad' : 'ok';
     el.textContent = e ? `✖ línea ${e.line}: ${e.msg}` : '✓ sintaxis correcta';
@@ -444,9 +610,9 @@ export class App {
     document.body.classList.add('editing');
     $('#editor').classList.add('open');
     $('#inspector').classList.add('hidden');
-    if (this.selected) this.target = this.selected;
+    if (this.selected && this.be.canControl(this.selected)) this.target = this.selected;
     const u = this.target ? this.game.units.get(this.target)?.u : null;
-    if (u?.program && (u.program.name + '.py') in this.be.files) this.openFile(u.program.name + '.py');
+    this.openFile(this.defaultFileFor(u));
     this.renderConsole(this.be.now(), true);
     if (u) this.focus(u.x, u.y);
     setTimeout(() => this.ed.view.focus(), 280);
@@ -518,7 +684,7 @@ export class App {
     const u = this.target ? this.game.units.get(this.target)?.u : null;
     if (!u?.error || !u.program) return;
     const f = u.error.mod === '__main__' ? u.program.name + '.py' : u.error.mod + '.py';
-    if (f in this.be.files) {
+    if (f in this.files()) {
       this.openFile(f);
       setTimeout(() => this.ed.goToLine(u.error!.line), 300);
     }
@@ -531,12 +697,12 @@ export class App {
     const g = this.game;
     const state = JSON.parse(JSON.stringify(g.toState()));
     const clone = Game.fromState(state);
-    const pl = clone.player(this.be.me)!;
+    const pl = clone.player(clone.units.get(id)!.u.owner)!;
     const w = clone.cfg.w;
     for (let i = 0; i < clone.terrain.length; i++) if (!pl.known[i]) clone.terrain[i] = T.ROCA;
     for (const r of [...clone.resources.values()]) if (!pl.knownRes.has(r.id)) clone.removeResource(r);
     for (const rt of clone.units.values()) if (rt.u.id !== id) { rt.u.program = null; rt.vm = null; rt.u.wakeAt = null; }
-    const r = clone.runProgram(id, this.currentFile, { ...this.be.files });
+    const r = clone.runProgram(id, this.currentFile, { ...this.files() });
     if (!r.ok) { this.toast(`Error: ${r.error} (línea ${r.line})`, 'err'); if (r.line) this.ed.goToLine(r.line); return; }
     const u = clone.units.get(id)!.u;
     const logs0 = u.logs.length;
@@ -598,7 +764,7 @@ export class App {
       <p class="lead">Hace décadas la red industrial colapsó. La naturaleza ha reclamado el valle, pero bajo el musgo quedan hierro, cobre, silicio y máquinas que todavía obedecen. Tu colonia empieza hoy.</p>
       <div class="rule"><b>No controlas las máquinas. Las programas.</b><br><span style="color:var(--muted);font-size:13px">Sin teclas de movimiento: escribes Python, lo cargas en tus unidades y ellas trabajan en tiempo real, también cuando cierras el juego.</span></div>
       <div class="steps">
-        <div class="step"><div class="n">1</div><div>Abre el <b>editor</b> (tecla <span class="kbd">E</span>), lee <code>main.py</code> y pulsa <b>▶ Ejecutar</b>.</div></div>
+        <div class="step"><div class="n">1</div><div>Abre el <b>editor</b> (tecla <span class="kbd">E</span>), elige una unidad (minero, granjero, constructor o hacker), lee su programa y pulsa <b>▶ Ejecutar</b>.</div></div>
         <div class="step"><div class="n">2</div><div>Observa el log del dron. Consulta el <b>Manual</b> para ver cada primitiva, su tiempo y su coste de energía.</div></div>
         <div class="step"><div class="n">3</div><div>Tu reto: que el dron <b>explore, encuentre mineral, lo extraiga, vuelva y lo descargue… una y otra vez</b>.</div></div>
       </div>
@@ -662,7 +828,7 @@ export class App {
   }
 
   showVersions(): void {
-    const vs = this.be.versions(this.currentFile).slice().reverse();
+    const vs = this.be.versions(this.owner(), this.currentFile).slice().reverse();
     this.modal(`<h2>Versiones de ${esc(this.currentFile)}</h2><p class="lead">Se guarda una versión cada vez que ejecutas o pulsas Ctrl+S.</p>
       ${vs.length ? vs.map((v, i) => `<div class="ver-item"><div><div>${new Date(v.t).toLocaleString('es-ES')}</div><pre>${esc(v.src.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).slice(0, 3).join('\n'))}</pre></div><button class="btn" style="flex:none;padding:0 12px" data-v="${i}">Restaurar</button></div>`).join('') : '<p class="lead">Aún no hay versiones guardadas.</p>'}
       <div class="foot"><button class="btn go" id="v-close">Cerrar</button></div>`, (root, close) => {
@@ -698,12 +864,12 @@ export class App {
       };
       $('#s-gal', root).onclick = () => { close(); this.showGallery(); };
       $('#s-exp', root).onclick = () => {
-        const blob = new Blob([JSON.stringify({ grid: 1, files: this.be.files }, null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify({ grid: 1, files: this.files() }, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = `grid-biblioteca-${pl.p.name.replace(/\W+/g, '_')}.json`;
         a.click();
-        navigator.clipboard?.writeText(JSON.stringify({ grid: 1, files: this.be.files })).then(
+        navigator.clipboard?.writeText(JSON.stringify({ grid: 1, files: this.files() })).then(
           () => this.toast('Biblioteca copiada al portapapeles (y descargada si el navegador lo permite)', 'ok'),
           () => undefined,
         );
@@ -718,18 +884,18 @@ export class App {
           if (f.name.endsWith('.json')) {
             try {
               const data = JSON.parse(txt);
-              for (const [k, v] of Object.entries(data.files ?? {})) { if (typeof v === 'string' && /^[\w-]+\.py$/.test(k)) { this.be.saveFile(k, v, true); n++; } }
+              for (const [k, v] of Object.entries(data.files ?? {})) { if (typeof v === 'string' && /^[\w-]+\.py$/.test(k)) { this.be.saveFile(this.owner(), k, v, true); n++; } }
             } catch { this.toast(`${f.name} no es una biblioteca válida`, 'err'); }
-          } else if (/^[\w-]+\.py$/.test(f.name)) { this.be.saveFile(f.name, txt, true); n++; }
+          } else if (/^[\w-]+\.py$/.test(f.name)) { this.be.saveFile(this.owner(), f.name, txt, true); n++; }
         }
         this.renderTabs();
         this.toast(`${n} archivo(s) importado(s)`, 'ok');
       };
       $('#s-reset', root).onclick = () => {
-        const files = { ...this.be.files };
+        const files = { ...this.files() };
         const name = pl.p.name;
-        this.be.reset(name);
-        for (const [k, v] of Object.entries(files)) this.be.saveFile(k, v);
+        (this.be as PracticeSession).reset(name);
+        for (const [k, v] of Object.entries(files)) this.be.saveFile(this.owner(), k, v);
         location.reload();
       };
     });
@@ -774,8 +940,8 @@ export class App {
         if (!n) return;
         if (!n.endsWith('.py')) n += '.py';
         if (!/^[A-Za-z_][\w]*\.py$/.test(n)) { this.toast('Usa sólo letras, números y _ (debe ser un nombre de módulo válido)', 'err'); return; }
-        if (n in this.be.files) { this.toast('Ya existe', 'err'); return; }
-        this.be.saveFile(n, `# ${n}\n`);
+        if (n in this.files()) { this.toast('Ya existe', 'err'); return; }
+        this.be.saveFile(this.owner(), n, `# ${n}\n`);
         close();
         this.openFile(n);
       };
@@ -809,7 +975,7 @@ export class App {
       const ti = $('#tileinfo');
       const g = this.game;
       if (t.x >= 0 && t.y >= 0 && t.x < g.cfg.w && t.y < g.cfg.h && !drag?.moved) {
-        const known = g.player(this.be.me)!.known[t.y * g.cfg.w + t.x];
+        const known = this.be.god || g.player(this.be.me)?.known[t.y * g.cfg.w + t.x];
         ti.style.display = 'block';
         ti.style.left = `${sx + 16}px`;
         ti.style.top = `${sy + 14}px`;
@@ -864,7 +1030,7 @@ export class App {
     $<HTMLSelectElement>('#ed-target').onchange = (e) => { this.target = (e.target as HTMLSelectElement).value; this.select(this.target, true); };
     $('#z-in').onclick = () => this.zoomAt(this.r.W / 2, this.r.H / 2, 1.25);
     $('#z-out').onclick = () => this.zoomAt(this.r.W / 2, this.r.H / 2, 0.8);
-    $('#c-base').onclick = () => { const b = this.game.player(this.be.me)!.p.base; this.r.centerOn(b.x + 1, b.y + 1); };
+    $('#c-base').onclick = () => { const b = this.viewPlayer()?.p.base; if (b) this.r.centerOn(b.x + 1, b.y + 1); };
     $('#c-grid').onclick = () => this.toggleGrid();
     $('#speed').addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
@@ -879,9 +1045,9 @@ export class App {
         const f = del.dataset.del!;
         this.ask(`¿Eliminar ${f}?`, 'Se conservan sus versiones por si quieres recuperarlo.', 'Eliminar').then((ok) => {
           if (!ok) return;
-          this.be.deleteFile(f);
+          this.be.deleteFile(this.owner(), f);
           this.ed.forget(f);
-          if (this.currentFile === f) this.openFile('main.py');
+          if (this.currentFile === f) this.openFile(Object.keys(this.files())[0]);
           else this.renderTabs();
         });
         return;
@@ -891,18 +1057,26 @@ export class App {
     });
     $('#tabs').addEventListener('dblclick', (e) => {
       const tab = (e.target as HTMLElement).closest('.tab') as HTMLElement | null;
-      if (!tab || tab.dataset.f === 'main.py') return;
+      if (!tab || tab.dataset.f! in INV_DEFAULT) return;
       const from = tab.dataset.f!;
       this.ask('Renombrar archivo', 'Recuerda actualizar los import que lo usen.', 'Renombrar', from).then((to) => {
         if (typeof to !== 'string') return;
         const name = to.endsWith('.py') ? to : to + '.py';
-        if (/^[A-Za-z_]\w*\.py$/.test(name) && !(name in this.be.files)) { this.be.renameFile(from, name); this.ed.forget(from); this.openFile(name); }
+        if (/^[A-Za-z_]\w*\.py$/.test(name) && !(name in this.files())) { this.be.renameFile(this.owner(), from, name); this.ed.forget(from); this.openFile(name); }
         else this.toast('Nombre no válido o ya existente', 'err');
       });
     });
     $('#ulist').addEventListener('click', (e) => {
       const c = (e.target as HTMLElement).closest('.ucard') as HTMLElement | null;
-      if (c) this.select(c.dataset.u!, true);
+      if (c) { this.select(c.dataset.u!, true); return; }
+      const ph = (e.target as HTMLElement).closest('.pgroup') as HTMLElement | null;
+      if (ph) {
+        const us = this.game.unitsOf(ph.dataset.p!);
+        if (us[0]) {
+          this.select(us[0].id, true);
+          if (this.editorOpen) this.openFile(this.defaultFileFor(us[0]));
+        }
+      }
     });
     $('#manual').addEventListener('click', (e) => {
       const it = (e.target as HTMLElement).closest('.api-item') as HTMLElement | null;
@@ -920,6 +1094,17 @@ export class App {
       if (act === 'close') { this.selected = null; this.r.selectedUnit = null; this.r.selectedTile = null; this.renderInspector(this.be.now(), true); this.renderUnits(this.be.now()); }
       if (act === 'code') this.openEditor();
       if (act === 'goerr') { this.openEditor(); this.gotoError(); }
+      if (act === 'restore' && this.selected) {
+        const u = this.game.units.get(this.selected)?.u;
+        const file = u?.program ? u.program.name + '.py' : null;
+        const vs = file ? this.be.versions(this.owner(), file) : [];
+        if (file && vs.length) {
+          this.be.saveFile(this.owner(), file, vs[vs.length - 1].src);
+          this.ed.forget(file);
+          if (this.currentFile === file) this.ed.open(file, vs[vs.length - 1].src);
+          this.toast(`${file} restaurado. Pulsa Ejecutar para volver a cargarlo.`, 'ok');
+        }
+      }
       if (act === 'run' && this.selected) this.runOn(this.selected, $<HTMLSelectElement>('#insp-file').value);
       if (act === 'stop' && this.selected) { this.be.stop(this.selected); this.renderInspector(this.be.now(), true); }
     });
@@ -942,7 +1127,7 @@ export class App {
       else if (k === 'b') $('#c-base').click();
       else if (k === 'tab') {
         e.preventDefault();
-        const us = this.game.unitsOf(this.be.me);
+        const us = this.myUnits();
         const i = us.findIndex((u) => u.id === this.selected);
         this.select(us[(i + 1) % us.length].id, true);
       } else if (k === ' ' && this.selected) {

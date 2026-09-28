@@ -7,11 +7,11 @@
 
 | Primitiva | Devuelve | Tiempo | Energía |
 |---|---|---|---|
-| `mover(direccion)` | True si se movió, False si chocó | 2 s en hierba · 1,2 s carretera · 1,5 s hormigón · 3,5 s maleza | 1 |
+| `mover(direccion)` | True si se movió, False si chocó | según terreno (hierba 0,7 s · camino 0,35 s · dron 0,3 s) | 1 |
 
 ### `mover(direccion)`
 
-Mueve la unidad una casilla. direccion: "N", "S", "E" u "O". Si la casilla está bloqueada (agua, ruina, roca, bosque, borde) la unidad choca y pierde 1 s.
+Mueve la unidad una casilla. direccion: "N", "S", "E" u "O". Las unidades de tierra chocan con agua, bosque, rocas, ruinas y edificios; los drones vuelan por encima de agua y bosque. Por un camino todo va más rápido.
 
 ```python
 if not mover("E"):
@@ -23,22 +23,27 @@ if not mover("E"):
 | Primitiva | Devuelve | Tiempo | Energía |
 |---|---|---|---|
 | `posicion()` | tupla (x, y) | 0 | 0 |
-| `escanear()` | lista de Recurso | 3 s | 2 |
-| `mirar(direccion)` | texto: "hierba", "carretera", "agua", "ruina", "roca", "bosque"… o "borde" | 0,5 s | 0 |
-| `terreno(x, y)` | texto, o None si la casilla no se ha explorado | 0 | 0 |
-| `transitable(x, y)` | True / False / None (desconocida) | 0 | 0 |
+| `escanear()` | lista de Recurso | 1 s | 2 |
+| `radar()` | lista de Unidad | 0 | 0 |
+| `mirar(direccion)` | texto: "hierba", "agua", "camino", "roca"… o "borde" | 0,2 s | 0 |
+| `terreno(x, y)` | texto, o None si no se ha explorado | 0 | 0 |
+| `transitable(x, y)` | True / False / None | 0 | 0 |
 | `coste(x, y)` | número o None | 0 | 0 |
 | `bateria()` | número | 0 | 0 |
+| `senal()` | True / False | 0 | 0 |
 | `carga()` | entero | 0 | 0 |
 | `carga_max()` | entero | 0 | 0 |
-| `inventario()` | diccionario {"hierro": 3, …} | 0 | 0 |
+| `inventario()` | dict {"hierro": 3, …} | 0 | 0 |
 | `recurso_aqui()` | Recurso o None | 0 | 0 |
 | `tiempo()` | número | 0 | 0 |
+| `tiempo_restante()` | número o None | 0 | 0 |
 | `nombre()` | texto | 0 | 0 |
+| `tipo()` | texto | 0 | 0 |
+| `integridad()` | True / False | 0 | 0 |
 
 ### `posicion()`
 
-Coordenadas actuales de la unidad. x crece hacia el Este, y crece hacia el Sur.
+Coordenadas actuales. x crece hacia el Este, y crece hacia el Sur.
 
 ```python
 x, y = posicion()
@@ -46,111 +51,235 @@ x, y = posicion()
 
 ### `escanear()`
 
-Barre el entorno con el sensor (radio 3 en el dron). Revela el terreno en el mapa del jugador y devuelve los recursos detectados. Cada recurso tiene .tipo, .x, .y, .cantidad y .calidad.
+Barre el entorno: revela el terreno y devuelve las vetas detectadas, de la más cercana a la más lejana. Cada una tiene .tipo, .x, .y, .cantidad y .calidad.
 
 ```python
 for r in escanear():
     print(r.tipo, r.x, r.y)
 ```
 
-### `mirar(direccion)`
+### `radar()`
 
-Consulta el terreno de la casilla vecina sin moverse.
+Unidades cercanas (propias y enemigas). Cada una tiene .nombre, .tipo, .x, .y, .dueño y .enemiga.
 
 ```python
-if mirar("E") != "agua":
-    mover("E")
+enemigos = [u for u in radar() if u.enemiga]
 ```
+
+### `mirar(direccion)`
+
+Terreno de la casilla vecina sin moverse.
 
 ### `terreno(x, y)`
 
-Terreno de una casilla según el mapa conocido por tu colonia (lo que han visto todas tus unidades).
+Terreno de una casilla según lo que ha visto tu colonia.
 
 ### `transitable(x, y)`
 
-True si la casilla es conocida y la unidad puede pisarla. Útil para BFS / A*.
+True si la casilla es conocida y esta unidad puede entrar. Ideal para BFS / A*.
 
 ### `coste(x, y)`
 
-Segundos que tardaría esta unidad en entrar en la casilla (según terreno conocido). None si es intransitable o desconocida. Útil para Dijkstra.
+Segundos que tardaría esta unidad en entrar en la casilla. Útil para Dijkstra.
 
 ### `bateria()`
 
-Energía actual (0-100). Los paneles de la unidad recargan ~2 % por minuto.
+Energía (0-100). Se recarga con recargar() junto a la base o un panel solar.
+
+### `senal()`
+
+True si la unidad está dentro del alcance de la base (radio 9) o de una antena propia (radio 7). Sin señal, las acciones tardan el doble.
 
 ### `carga()`
 
-Unidades de recurso que transporta ahora.
+Unidades que transporta.
 
 ### `carga_max()`
 
-Capacidad de carga de la unidad.
+Capacidad de carga (minero 12, granjero 6).
 
 ### `inventario()`
 
-Contenido de la carga por tipo de recurso.
+Lo que transporta, por tipo.
 
 ### `recurso_aqui()`
 
-Recurso que hay en la casilla actual (si ya fue escaneado).
+Veta de la casilla actual (si ya se escaneó).
 
 ### `tiempo()`
 
-Segundos transcurridos desde que empezó el programa.
+Segundos desde que empezó el programa.
+
+### `tiempo_restante()`
+
+Segundos que quedan de partida.
 
 ### `nombre()`
 
-Nombre de la unidad que ejecuta el programa (p. ej. "DRN-01"). Útil cuando varias unidades comparten código.
+Nombre de la unidad (p. ej. "MIN-01").
 
-## Trabajo
+### `tipo()`
 
-| Primitiva | Devuelve | Tiempo | Energía |
-|---|---|---|---|
-| `extraer()` | 1 si extrajo, 0 si no había recurso o la carga está llena | hierro 3 s · cobre 4 s · silicio 6 s · chatarra 2,5 s · biomasa 2 s | 1 |
-| `esperar(segundos)` | None | los segundos indicados | 0 |
+Tipo de la unidad: "granjero", "minero", "constructor", "hacker" o "aspersor".
 
-### `extraer()`
+### `integridad()`
 
-Extrae una unidad del recurso de la casilla actual. Hay que estar encima del recurso.
+False si un hacker ha modificado el programa que estás ejecutando.
 
 ```python
-while carga() < carga_max() and extraer():
-    pass
+if not integridad():
+    print("¡me han hackeado!")
 ```
-
-### `esperar(segundos)`
-
-Espera sin hacer nada (mínimo 1 s). Los paneles siguen recargando.
 
 ## Base
 
 | Primitiva | Devuelve | Tiempo | Energía |
 |---|---|---|---|
-| `descargar()` | unidades descargadas | 2 s | 0 |
-| `recargar()` | nueva batería | 0,4 s por cada 1 % | — |
 | `base()` | tupla (x, y) | 0 | 0 |
-| `almacen()` | diccionario | 0 | 0 |
-| `fabricar(tipo)` | nombre de la unidad nueva, o None si faltan recursos | 60-120 s | 5 |
-
-### `descargar()`
-
-Descarga toda la carga en el almacén de la base. Hay que estar junto a la base (el muelle de base() sirve).
-
-### `recargar()`
-
-Recarga la batería al 100 % junto a la base.
+| `almacen()` | dict | 0 | 0 |
+| `descargar()` | unidades entregadas | 0,7 s | 0 |
+| `recargar()` | batería | proporcional a lo que falte | — |
+| `esperar(segundos)` | None | lo indicado | 0 |
 
 ### `base()`
 
-Coordenadas del muelle de tu base (casilla libre al sur del centro operativo).
+Coordenadas del muelle de tu base (junto al centro operativo).
 
 ### `almacen()`
 
-Recursos guardados en tu base.
+Recursos guardados en tu colonia.
 
-### `fabricar(tipo)`
+### `descargar()`
 
-Fabrica una unidad nueva junto a la base. tipo: "dron" (10 hierro, 4 cobre), "explorador" (12 hierro, 6 cobre; vuela, radio 5, no mina) o "minero" (20 hierro, 8 chatarra; carga 20, mina más rápido).
+Entrega la carga en la base (a 2 casillas o menos) o en un almacén propio (al lado). Un silo sólo acepta cosecha. Cada recurso suma puntos: hierro 1, chatarra 1, cobre 2, cosecha 3, silicio 4.
+
+### `recargar()`
+
+Recarga al 100 % junto a la base o a un panel solar propio.
+
+### `esperar(segundos)`
+
+Espera los segundos indicados (tiempo real).
+
+## Granjero
+
+| Primitiva | Devuelve | Tiempo | Energía |
+|---|---|---|---|
+| `plantar()` | True | 0,7 s | 1 |
+| `regar()` | True | 0,5 s | 1 |
+| `recolectar()` | unidades recogidas | 1 s | 1 |
+| `cargar_agua()` | agua | 0,7 s | 0 |
+| `agua()` | entero | 0 | 0 |
+| `parcela_aqui()` | Parcela o None | 0 | 0 |
+| `parcelas()` | lista de Parcela | 0 | 0 |
+
+### `plantar()`
+
+Siembra en la parcela de huerto que hay debajo.
+
+### `regar()`
+
+Añade 45 de humedad a la parcela. Gasta 1 de agua del depósito (6).
+
+### `recolectar()`
+
+Cosecha la parcela si su madurez es 100: +2 cosecha. Un cultivo madura 1 punto por segundo mientras su humedad sea > 30; la humedad baja sola.
+
+```python
+try:
+    recolectar()
+except CultivoNoMaduroError as e:
+    print("todavía no:", e)
+```
+
+### `cargar_agua()`
+
+Llena el depósito junto al agua o a la base.
+
+### `agua()`
+
+Agua que queda en el depósito.
+
+### `parcela_aqui()`
+
+La parcela de huerto de la casilla actual como objeto Parcela: .plantada, .humedad, .madurez, .lista, .propia, .x, .y.
+
+```python
+p = parcela_aqui()
+if p and p.humedad < 30:
+    regar()
+```
+
+### `parcelas()`
+
+Todas las parcelas de huerto que conoce tu colonia (incluidas las salvajes, sin dueño).
+
+## Minero
+
+| Primitiva | Devuelve | Tiempo | Energía |
+|---|---|---|---|
+| `picar()` | 1 si picó, 0 si no hay veta | hierro 1 s · cobre 1,4 s · silicio 2,1 s · chatarra 0,9 s | 1 |
+| `recoger()` | unidades recogidas | 0,35 s | 0 |
+| `suelo()` | dict | 0 | 0 |
+
+### `picar()`
+
+Rompe 1 unidad de la veta de la casilla actual; cae al suelo.
+
+### `recoger()`
+
+Mete en la carga lo que hay en el suelo de la casilla (¡también lo que dejó otro minero!).
+
+### `suelo()`
+
+Recursos sueltos en la casilla actual.
+
+## Constructor
+
+| Primitiva | Devuelve | Tiempo | Energía |
+|---|---|---|---|
+| `construir(tipo, direccion)` | True | camino 0,7 s · edificios 2-3 s | 2 |
+| `coste_edificio(tipo)` | dict | 0 | 0 |
+| `edificios()` | lista de Edificio | 0 | 0 |
+
+### `construir(tipo, direccion)`
+
+Construye en la casilla vecina. Tipos y coste: "camino" (1 chatarra; sobre agua es un puente: 3 chatarra + 1 hierro), "almacen" (5 hierro + 3 chatarra), "silo" (3 hierro, sólo cosecha), "panel" (2 silicio + 2 cobre), "antena" (3 cobre + 2 hierro), "aspersor" (2 cobre + 2 hierro).
+
+```python
+try:
+    construir("panel", "S")
+except SinRecursosError:
+    print("aún no hay silicio")
+```
+
+### `coste_edificio(tipo)`
+
+Lo que cuesta un edificio.
+
+### `edificios()`
+
+Tus edificios: .tipo, .x, .y
+
+## Hacker
+
+| Primitiva | Devuelve | Tiempo | Energía |
+|---|---|---|---|
+| `hackear(direccion, modo="invertir")` | texto con el cambio, o False si falló | 4 s | 3 |
+
+### `hackear(direccion, modo="invertir")`
+
+Modifica el programa de la unidad enemiga que está en la casilla vecina. Modos: "invertir" cambia una dirección ("N"↔"S", "E"↔"O"), "numero" suma o resta 1 a un número, "borrar" quita un carácter (puede romper el código). La víctima se reinicia con el código cambiado. Hay que estar 4 s al lado; luego 45 s de enfriamiento. La víctima queda protegida 40 s.
+
+## Aspersor
+
+| Primitiva | Devuelve | Tiempo | Energía |
+|---|---|---|---|
+| `disparar(x, y)` | drones mojados | 0,3 s | 0 |
+
+### `disparar(x, y)`
+
+Lanza agua a una casilla (radio 3): riega esa parcela y sus 4 vecinas, y deja 8 s fuera de juego a los drones enemigos que estén allí (y cancela su hackeo). Gasta 1 de agua; el depósito (10) se rellena solo.
 
 ## Memoria
 
@@ -161,15 +290,19 @@ Fabrica una unidad nueva junto a la base. tipo: "dron" (10 hierro, 4 cobre), "ex
 
 ### `memoria`
 
-Diccionario propio de la unidad que sobrevive a reinicios del programa. Guarda aquí lo que quieras recordar.
+Diccionario propio de la unidad que sobrevive a reinicios del programa (y a los hackeos).
 
 ```python
-memoria["hierro"] = memoria.get("hierro", []) + [(x, y)]
+memoria["vetas"] = memoria.get("vetas", []) + [(x, y)]
 ```
 
 ### `compartido`
 
-Diccionario compartido por todas las unidades de tu colonia: la forma de que se pasen información.
+Diccionario compartido por todas las unidades de tu colonia.
+
+```python
+compartido["objetivo"] = (x, y)
+```
 
 ## Depuración
 
@@ -184,11 +317,32 @@ Escribe en el log de la unidad.
 
 ### `dibujar_ruta(puntos)`
 
-Dibuja en el mapa una lista de coordenadas [(x, y), …]. Ideal para depurar tu pathfinding.
+Dibuja en el mapa una lista de coordenadas [(x, y), …].
 
-```python
-dibujar_ruta(camino)
-```
+## Errores
+
+| Primitiva | Devuelve | Tiempo | Energía |
+|---|---|---|---|
+| `SinRecursosError` | excepción |  |  |
+| `CultivoNoMaduroError` | excepción |  |  |
+| `AccionInvalidaError` | excepción |  |  |
+| `FueraDeRangoError` | excepción |  |  |
+
+### `SinRecursosError`
+
+Faltan recursos, agua o batería para la acción.
+
+### `CultivoNoMaduroError`
+
+Has intentado recolectar antes de tiempo.
+
+### `AccionInvalidaError`
+
+La acción no tiene sentido aquí (no hay huerto, la unidad no sabe hacerlo, enfriamiento…).
+
+### `FueraDeRangoError`
+
+El objetivo está demasiado lejos.
 
 ## Python disponible (PyGrid)
 

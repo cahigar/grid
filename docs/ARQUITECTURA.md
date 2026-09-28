@@ -152,3 +152,29 @@ src/client       render, UI, editor, backend local
 tests            tests del intérprete y de la simulación (node:test)
 docs             diseño, arquitectura, API
 ```
+
+## 9. Iteración 2 — partidas de clase
+
+```
+ Profesor (navegador)                     Ably                       Alumnos (navegador)
+ ┌──────────────────────┐  grid:SALA:all   ┌──────┐  lobby/reset   ┌──────────────────────┐
+ │ HostSession          │ ───────────────► │      │ ─────────────► │ MirrorSession        │
+ │  Game autoritativo   │  grid:SALA:c:ID  │      │  init/patch    │  mapa desde semilla  │
+ │  VMs de todos        │ ───────────────► │      │ ─────────────► │  sin simulación      │
+ │  bots opcionales     │ ◄─────────────── │      │ ◄───────────── │  editor + órdenes    │
+ └──────────────────────┘  grid:SALA:host  └──────┘ hello/files/run └──────────────────────┘
+          │                                                                  │
+          └──────── /api (Vercel + Neon): cuentas, salas, progreso, resultados ┘
+```
+
+- **Fases**: preparación (programar sin moverse) → partida (15 min por defecto, `timeScale` 0.35) → final.
+  El profesor puede saltar la preparación, añadir minutos, pausar y terminar.
+- **Anti-trampas**: el alumno sólo recibe recursos que su colonia ha descubierto; el código de otros jugadores
+  nunca sale del anfitrión (salvo al profesor, que lo ve todo).
+- **Hackeo**: `hackear(dir, modo)` muta el código fuente de la víctima (`invertir`, `numero`, `borrar`), con
+  canalización, enfriamiento e inmunidad; la víctima ve la línea cambiada y puede restaurar. El aspersor
+  (`disparar`) moja drones y cancela el hackeo.
+- **Seguridad API**: cookies HttpOnly firmadas (HMAC, `AUTH_SECRET`), contraseñas con scrypt, PIN con bloqueo
+  tras 8 fallos, tokens de Ably con capacidades mínimas (el alumno sólo publica en `host` y lee `all` + su canal).
+- **Límites**: el anfitrión debe mantener la pestaña abierta; Ably gratuito admite de sobra 20 alumnos
+  (≈3 mensajes/s por alumno).

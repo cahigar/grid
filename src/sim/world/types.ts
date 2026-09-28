@@ -15,6 +15,7 @@ export enum T {
   BASE = 10,
   ESTRUCTURA = 11,
   PUENTE_ROTO = 12,
+  CAMINO = 13,
 }
 
 export interface TerrainInfo {
@@ -34,29 +35,33 @@ export const TERRAIN: Record<T, TerrainInfo> = {
   [T.AGUA]: { key: 'agua', move: 0, air: true },
   [T.RUINA]: { key: 'ruina', move: 0, air: false },
   [T.ROCA]: { key: 'roca', move: 0, air: false },
-  [T.CULTIVO]: { key: 'cultivo', move: 2500, air: true },
+  [T.CULTIVO]: { key: 'huerto', move: 2500, air: true },
   [T.PUENTE]: { key: 'puente', move: 1200, air: true },
   [T.BASE]: { key: 'base', move: 0, air: false },
-  [T.ESTRUCTURA]: { key: 'estructura', move: 0, air: false },
+  [T.ESTRUCTURA]: { key: 'edificio', move: 0, air: false },
   [T.PUENTE_ROTO]: { key: 'puente_roto', move: 0, air: true },
+  [T.CAMINO]: { key: 'camino', move: 1000, air: true },
 };
 
-export type ResKind = 'hierro' | 'cobre' | 'silicio' | 'chatarra' | 'biomasa';
+/** Minerales (vetas del mapa) y cosecha (huertos) */
+export type ResKind = 'hierro' | 'cobre' | 'silicio' | 'chatarra' | 'cosecha';
+export type MineralKind = Exclude<ResKind, 'cosecha'>;
 
-export const RESOURCES: Record<ResKind, { ms: number; value: number; regen: number; label: string }> = {
-  hierro: { ms: 3000, value: 1, regen: 0, label: 'Hierro' },
-  cobre: { ms: 4000, value: 2, regen: 0, label: 'Cobre' },
-  silicio: { ms: 6000, value: 4, regen: 0, label: 'Silicio' },
-  chatarra: { ms: 2500, value: 1, regen: 0, label: 'Chatarra' },
-  biomasa: { ms: 2000, value: 0.5, regen: 1 / 120_000, label: 'Biomasa' },
+export const RESOURCES: Record<ResKind, { ms: number; value: number; label: string }> = {
+  hierro: { ms: 3000, value: 1, label: 'Hierro' },
+  cobre: { ms: 4000, value: 2, label: 'Cobre' },
+  silicio: { ms: 6000, value: 4, label: 'Silicio' },
+  chatarra: { ms: 2500, value: 1, label: 'Chatarra' },
+  cosecha: { ms: 3000, value: 3, label: 'Cosecha' },
 };
 export const RES_KINDS = Object.keys(RESOURCES) as ResKind[];
+export const MINERALS: MineralKind[] = ['hierro', 'cobre', 'silicio', 'chatarra'];
 
 export interface ResourceNode {
   id: number;
   x: number;
   y: number;
-  kind: ResKind;
+  kind: MineralKind;
   amount: number;
   max: number;
   quality: 1 | 2 | 3;
@@ -65,7 +70,7 @@ export interface ResourceNode {
 export type PropKind =
   | 'arbol' | 'arbol_grande' | 'pino' | 'arbusto' | 'flores' | 'torre_ruina' | 'bloque_ruina' | 'muro_ruina'
   | 'coche' | 'farola' | 'panel_solar' | 'almacen' | 'antena' | 'silo' | 'roca' | 'cristales' | 'tuberia'
-  | 'cascada' | 'turbina' | 'invernadero' | 'poste';
+  | 'cascada' | 'turbina' | 'invernadero' | 'poste' | 'aspersor';
 
 export interface Prop {
   x: number;
@@ -75,16 +80,94 @@ export interface Prop {
   owner?: string;
 }
 
-export type UnitType = 'dron' | 'explorador' | 'minero';
+// ───── edificios que levanta el constructor ─────
+export type BuildKind = 'camino' | 'almacen' | 'silo' | 'panel' | 'antena' | 'aspersor';
 
-export const UNIT_TYPES: Record<UnitType, {
-  label: string; prefix: string; moveMul: number; scan: number; cargo: number; mineMul: number; air: boolean;
-  cost: Partial<Record<ResKind, number>>; buildMs: number;
-}> = {
-  dron: { label: 'Dron', prefix: 'DRN', moveMul: 1, scan: 3, cargo: 8, mineMul: 1, air: false, cost: { hierro: 10, cobre: 4 }, buildMs: 60_000 },
-  explorador: { label: 'Explorador', prefix: 'EXP', moveMul: 0.5, scan: 5, cargo: 0, mineMul: 0, air: true, cost: { hierro: 12, cobre: 6 }, buildMs: 90_000 },
-  minero: { label: 'Minero', prefix: 'MIN', moveMul: 1.25, scan: 2, cargo: 20, mineMul: 0.67, air: false, cost: { hierro: 20, chatarra: 8 }, buildMs: 120_000 },
+export const BUILDINGS: Record<BuildKind, { label: string; cost: Partial<Record<ResKind, number>>; ms: number; desc: string }> = {
+  camino: { label: 'Camino', cost: { chatarra: 1 }, ms: 2000, desc: 'Moverse por él cuesta 1 s (por tierra y en vuelo). Sobre agua construye un puente (3 chatarra + 1 hierro).' },
+  almacen: { label: 'Almacén', cost: { hierro: 5, chatarra: 3 }, ms: 8000, desc: 'Punto de descarga para cualquier recurso.' },
+  silo: { label: 'Silo', cost: { hierro: 3 }, ms: 6000, desc: 'Punto de descarga sólo para cosecha.' },
+  panel: { label: 'Panel solar', cost: { silicio: 2, cobre: 2 }, ms: 6000, desc: 'Las unidades junto a él pueden recargar().' },
+  antena: { label: 'Antena', cost: { cobre: 3, hierro: 2 }, ms: 8000, desc: 'Amplía el rango de señal (radio 7). Fuera de señal las acciones tardan el doble.' },
+  aspersor: { label: 'Aspersor', cost: { cobre: 2, hierro: 2 }, ms: 6000, desc: 'Unidad fija programable: disparar(x, y) riega huertos y moja drones enemigos (radio 3).' },
 };
+export const BRIDGE_COST: Partial<Record<ResKind, number>> = { chatarra: 3, hierro: 1 };
+
+export interface Building {
+  id: number;
+  owner: string;
+  kind: Exclude<BuildKind, 'camino'>;
+  x: number;
+  y: number;
+}
+
+/** Parcela de huerto (casilla CULTIVO). Estado evaluado de forma perezosa en `t`. */
+export interface Parcel {
+  planted: boolean;
+  hum: number; // 0-100
+  mat: number; // 0-100
+  t: number;
+  owner: string | null; // quien la plantó
+}
+
+export const CROP = {
+  /** pérdida de humedad por segundo real */
+  humDecay: 100 / 90,
+  /** madurez por segundo con humedad > 30 */
+  grow: 1,
+  water: 45,
+  yield: 2,
+};
+
+// ───── unidades ─────
+export type UnitType = 'granjero' | 'minero' | 'constructor' | 'hacker' | 'aspersor';
+
+export interface UnitTypeInfo {
+  label: string;
+  prefix: string;
+  air: boolean;
+  fixed: boolean;
+  /** ms por casilla en vuelo; en tierra se usa el terreno × moveMul */
+  airMove: number;
+  moveMul: number;
+  scan: number;
+  cargo: number;
+  water: number;
+  actions: string[];
+  color: string;
+  desc: string;
+}
+
+const COMMON = ['mover', 'mirar', 'escanear', 'radar', 'descargar', 'recargar', 'esperar'];
+
+export const UNIT_TYPES: Record<UnitType, UnitTypeInfo> = {
+  granjero: {
+    label: 'Dron granjero', prefix: 'GRJ', air: true, fixed: false, airMove: 900, moveMul: 1, scan: 4, cargo: 6, water: 6,
+    actions: [...COMMON, 'plantar', 'regar', 'recolectar', 'cargar_agua'], color: '#8fd14f',
+    desc: 'Vuela. Planta, riega y recolecta en los huertos.',
+  },
+  minero: {
+    label: 'Minero', prefix: 'MIN', air: false, fixed: false, airMove: 0, moveMul: 1, scan: 3, cargo: 12, water: 0,
+    actions: [...COMMON, 'picar', 'recoger'], color: '#f2a93b',
+    desc: 'Vehículo de tierra. Pica vetas y recoge lo que queda en el suelo.',
+  },
+  constructor: {
+    label: 'Constructor', prefix: 'CON', air: false, fixed: false, airMove: 0, moveMul: 1.1, scan: 2, cargo: 0, water: 0,
+    actions: [...COMMON, 'construir'], color: '#ef7d2d',
+    desc: 'Vehículo de tierra con brazo. Construye caminos, almacenes, paneles, antenas y aspersores.',
+  },
+  hacker: {
+    label: 'Dron hacker', prefix: 'HCK', air: true, fixed: false, airMove: 800, moveMul: 1, scan: 5, cargo: 0, water: 0,
+    actions: [...COMMON, 'hackear'], color: '#ff5d73',
+    desc: 'Vuela. Junto a una unidad enemiga puede modificar su código.',
+  },
+  aspersor: {
+    label: 'Aspersor', prefix: 'ASP', air: false, fixed: true, airMove: 0, moveMul: 1, scan: 3, cargo: 0, water: 10,
+    actions: ['disparar', 'radar', 'esperar', 'mirar'], color: '#5fb8ff',
+    desc: 'Edificio programable. Dispara agua: riega huertos y deja fuera de juego a drones enemigos unos segundos.',
+  },
+};
+export const MOBILE_TYPES: UnitType[] = ['granjero', 'minero', 'constructor', 'hacker'];
 
 export type UnitStatus = 'IDLE' | 'RUNNING' | 'DONE' | 'ERROR' | 'HIBERNATING';
 
@@ -109,9 +192,11 @@ export interface UnitAction {
 export interface Program {
   name: string;
   bundle: { main: string; modules: Record<string, string> };
+  /** código tal como lo cargó su dueño (para integridad()) */
+  original: string;
   startedAt: number;
   vm: VMState | null;
-  /** petición de acción pendiente de energía (hibernación) */
+  /** petición de acción pendiente (hibernación o mojado) */
   pending: { action: string; args: unknown; kw: unknown } | null;
 }
 
@@ -124,6 +209,8 @@ export interface Unit {
   y: number;
   battery: number;
   batteryAt: number;
+  water: number;
+  waterAt: number;
   cargo: Partial<Record<ResKind, number>>;
   status: UnitStatus;
   action: UnitAction | null;
@@ -139,6 +226,10 @@ export interface Unit {
   cpuWarned: boolean;
   instr: number;
   actions: number;
+  wetUntil: number;
+  immuneUntil: number;
+  hackReadyAt: number;
+  hacked: { by: string; t: number; line: number; before: string; after: string } | null;
 }
 
 export interface DayStats {
@@ -151,6 +242,9 @@ export interface DayStats {
   actions: number;
   activeMs: number;
   errors: number;
+  harvested: number;
+  built: number;
+  hacks: number;
 }
 
 export interface Player {
@@ -161,15 +255,24 @@ export interface Player {
   base: { x: number; y: number };
   dock: { x: number; y: number };
   storage: Record<ResKind, number>;
-  known: string; // niebla serializada (base64 de bits)
+  known: string; // niebla serializada
   knownRes: number[];
   stats: DayStats;
-  totals: { mined: number; delivered: number; explored: number; built: number; units: number };
+  totals: { mined: number; delivered: number; explored: number; built: number; units: number; harvested: number; hacks: number };
   compartido: unknown;
   unitCounter: Record<UnitType, number>;
   files: Record<string, string>;
   versions?: Record<string, { t: number; src: string }[]>;
   lastSeen: number;
+}
+
+export interface MatchConfig {
+  /** instante de inicio de la preparación */
+  start: number;
+  prepMs: number;
+  playMs: number;
+  hacking: boolean;
+  hackBreak: boolean; // permitir el modo "borrar"
 }
 
 export interface WorldConfig {
@@ -178,10 +281,18 @@ export interface WorldConfig {
   seed: number;
   tzOffsetMin: number;
   name: string;
+  /** multiplicador de duración de acciones (0.35 en partida) */
+  timeScale?: number;
+  match?: MatchConfig | null;
+  startStorage?: Partial<Record<ResKind, number>>;
+  /** unidades con las que empieza cada jugador */
+  startUnits?: UnitType[];
+  /** sin generación procedural: la crea el nivel del tutorial */
+  level?: string;
 }
 
 export interface WorldState {
-  v: 1;
+  v: 2;
   cfg: WorldConfig;
   time: number;
   terrain: string; // base64
@@ -192,7 +303,15 @@ export interface WorldState {
   units: Unit[];
   seq: number;
   slots: { x: number; y: number }[];
+  buildings: Building[];
+  parcels: [number, Parcel][];
+  drops: [number, Partial<Record<ResKind, number>>][];
+  nextBuildId: number;
+  terrainVersion: number;
 }
 
 export type Dir = 'N' | 'S' | 'E' | 'O';
 export const DIRS: Record<Dir, [number, number]> = { N: [0, -1], S: [0, 1], E: [1, 0], O: [-1, 0] };
+
+export const SIGNAL = { base: 9, antena: 7 };
+export const HACK = { channelMs: 4000, cooldownMs: 45_000, immuneMs: 40_000, wetMs: 8000, radarRange: 5 };

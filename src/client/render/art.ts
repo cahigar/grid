@@ -194,7 +194,6 @@ export function paintGround(ctx: C, t: T, x: number, y: number, nb: Neighbor, se
         ctx.fillStyle = PAL.soil;
         ctx.fillRect(-HW, -HH, TW, TH);
         for (let k = -3; k <= 3; k++) {
-          // surcos en diagonal (eje x del mundo)
           const [ax, ay] = iso(-0.5, k / 7);
           const [bx, by] = iso(0.5, k / 7);
           ctx.strokeStyle = PAL.soilDark;
@@ -203,19 +202,18 @@ export function paintGround(ctx: C, t: T, x: number, y: number, nb: Neighbor, se
           ctx.moveTo(ax, ay + 1);
           ctx.lineTo(bx, by + 1);
           ctx.stroke();
-          for (let j = 0; j < 6; j++) {
-            const f = (j + 0.5) / 6;
-            const px = ax + (bx - ax) * f;
-            const py = ay + (by - ay) * f;
-            const ripe = hash2(x * 31 + j, y * 17 + k, seed) > 0.75;
-            ctx.fillStyle = ripe ? '#e6c34f' : PAL.sprout;
-            ctx.beginPath();
-            ctx.ellipse(px, py - 2, 2.2, 3, 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = rgba('#d9ff9a', 0.6);
-            ctx.fillRect(px - 0.5, py - 4, 1, 1);
-          }
+          ctx.strokeStyle = rgba('#9a7650', 0.6);
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(ax, ay - 1);
+          ctx.lineTo(bx, by - 1);
+          ctx.stroke();
         }
+        // borde de madera del bancal
+        ctx.strokeStyle = rgba('#8a6440', 0.9);
+        ctx.lineWidth = 2;
+        diamond(ctx, 0, 0, HW - 1, HH - 0.5);
+        ctx.stroke();
       }
       break;
     }
@@ -268,6 +266,24 @@ export function paintGround(ctx: C, t: T, x: number, y: number, nb: Neighbor, se
         if (ewb) { const [a1, b1] = iso(-0.5, -0.45); const [a2, b2] = iso(0.5, -0.45); ctx.beginPath(); ctx.moveTo(a1, b1); ctx.lineTo(a2, b2); ctx.stroke(); }
         else { const [a1, b1] = iso(-0.45, -0.5); const [a2, b2] = iso(-0.45, 0.5); ctx.beginPath(); ctx.moveTo(a1, b1); ctx.lineTo(a2, b2); ctx.stroke(); }
       }
+      break;
+    }
+    case T.CAMINO: {
+      // adoquines modulares puestos por los colonos, con guías luminosas
+      ctx.fillStyle = '#c9c3b2';
+      ctx.fillRect(-HW - 2, -HH - 2, TW + 4, TH + 4);
+      for (let a = 0; a < 3; a++) {
+        for (let b = 0; b < 3; b++) {
+          const [cx2, cy2] = iso(-0.33 + a * 0.33, -0.33 + b * 0.33);
+          ctx.fillStyle = (a + b + x + y) % 2 ? '#d6d0bf' : '#bfb9a8';
+          diamond(ctx, cx2, cy2, HW / 3 - 1.2, HH / 3 - 0.6);
+          ctx.fill();
+        }
+      }
+      ctx.strokeStyle = rgba(PAL.teal, 0.55);
+      ctx.lineWidth = 1;
+      diamond(ctx, 0, 0, HW - 2, HH - 1);
+      ctx.stroke();
       break;
     }
     case T.HORMIGON: {
@@ -818,7 +834,7 @@ function paintWaterfall(ctx: C, time: number): void {
   }
 }
 
-export const ANIMATED_PROPS = new Set<PropKind>(['panel_solar', 'antena', 'farola', 'cascada']);
+export const ANIMATED_PROPS = new Set<PropKind>(['panel_solar', 'antena', 'farola', 'cascada', 'aspersor']);
 
 export function paintProp(ctx: C, kind: PropKind, v: number, time = 0, color = PAL.teal): void {
   switch (kind) {
@@ -840,6 +856,7 @@ export function paintProp(ctx: C, kind: PropKind, v: number, time = 0, color = P
     case 'silo': return paintSilo(ctx);
     case 'invernadero': return paintGreenhouse(ctx);
     case 'cascada': return paintWaterfall(ctx, time);
+    case 'aspersor': return paintSprinkler(ctx, color, time, 0);
     default: return;
   }
 }
@@ -864,7 +881,7 @@ export const RES_COLORS: Record<ResKind, string> = {
   cobre: '#3fbf9a',
   silicio: '#9fd8ff',
   chatarra: '#9aa3a8',
-  biomasa: '#8fd14f',
+  cosecha: '#e6c34f',
 };
 
 export function paintResource(ctx: C, kind: ResKind, quality: number, frac: number, time: number): void {
@@ -931,19 +948,6 @@ function paintResourceInner(ctx: C, kind: ResKind, quality: number, frac: number
       ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(4, -4, 4, 0, Math.PI * 2); ctx.stroke();
       break;
-    case 'biomasa':
-      for (let i = 0; i < n + 2; i++) {
-        const x = -10 + hash2(i, 13, 3) * 20;
-        const y = hash2(i, 14, 3) * 5;
-        const h = 5 + hash2(i, 15, 3) * 6;
-        ctx.strokeStyle = '#6a8f3a';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h); ctx.stroke();
-        ctx.fillStyle = i % 2 ? '#c7e86a' : '#8fd14f';
-        ctx.beginPath(); ctx.ellipse(x, y - h, 4, 2.5, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = rgba('#f0ffb0', 0.5 + Math.sin(time / 400 + i) * 0.2);
-        ctx.beginPath(); ctx.arc(x - 1, y - h - 1, 1, 0, Math.PI * 2); ctx.fill();
-      }
       break;
   }
   if (quality >= 3) {
@@ -1039,14 +1043,127 @@ export interface UnitPaintState {
   carrying: number; // 0..1
 }
 
-export function paintUnit(ctx: C, type: UnitType | 'constructor', color: string, time: number, st: UnitPaintState): void {
-  if (type === 'dron' || type === 'explorador') return paintDrone(ctx, type, color, time, st);
+export function paintUnit(ctx: C, type: UnitType, color: string, time: number, st: UnitPaintState): void {
+  if (type === 'granjero' || type === 'hacker') return paintDrone(ctx, type, color, time, st);
   if (type === 'minero') return paintMiner(ctx, color, time, st);
+  if (type === 'aspersor') return paintSprinkler(ctx, color, time, st.working ? 1 : 0);
   return paintConstructor(ctx, color, time, st);
 }
 
-function paintDrone(ctx: C, type: 'dron' | 'explorador', color: string, time: number, st: UnitPaintState): void {
-  const scout = type === 'explorador';
+/** Aspersor: base técnica con depósito y cabezal giratorio */
+export function paintSprinkler(ctx: C, color: string, time: number, firing: number): void {
+  shadowEllipse(ctx, 6, 5, 20, 8, 0.3);
+  isoBox(ctx, 0, 0, 0.55, 0.55, 8, '#dfe5e2', '#cdd4d1', '#9ea9a7');
+  // depósito de agua
+  const g = ctx.createLinearGradient(-9, -24, 9, -10);
+  g.addColorStop(0, '#9fe3f0');
+  g.addColorStop(1, '#3f9fc0');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.ellipse(0, -10, 9, 4.5, 0, 0, Math.PI);
+  ctx.lineTo(-9, -22);
+  ctx.ellipse(0, -22, 9, 4.5, 0, Math.PI, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#c8f1f7';
+  ctx.beginPath(); ctx.ellipse(0, -22, 9, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = color;
+  ctx.fillRect(-9, -15, 18, 2);
+  // mástil y cabezal giratorio
+  ctx.strokeStyle = '#7d8a92';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(0, -34); ctx.stroke();
+  const a = time / (firing ? 90 : 700);
+  ctx.save();
+  ctx.translate(0, -35);
+  ctx.scale(1, 0.5);
+  ctx.rotate(a);
+  ctx.strokeStyle = PAL.amber;
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(9, 0); ctx.stroke();
+  ctx.fillStyle = '#5fb8ff';
+  ctx.beginPath(); ctx.arc(9, 0, 2.5, 0, Math.PI * 2); ctx.arc(-9, 0, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  if (firing) {
+    for (let i = 0; i < 8; i++) {
+      const k = ((time / 300 + i / 8) % 1);
+      const ang = a + i;
+      ctx.fillStyle = rgba('#bfefff', 1 - k);
+      ctx.beginPath();
+      ctx.arc(Math.cos(ang) * 14 * k, -35 + Math.sin(ang) * 6 * k - 8 * k + 14 * k * k, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+/** Cultivo en una parcela según madurez (0-100) y humedad */
+export function paintCrop(ctx: C, mat: number, hum: number, planted: boolean, time: number, x: number, y: number): void {
+  if (hum > 30) {
+    ctx.fillStyle = `rgba(40,28,18,${Math.min(0.35, hum / 250)})`;
+    diamond(ctx, 0, 0, HW - 3, HH - 1.5);
+    ctx.fill();
+    if (hum > 70) {
+      ctx.fillStyle = 'rgba(190,235,255,0.35)';
+      for (let i = 0; i < 3; i++) ctx.fillRect(-12 + hash2(x, y + i, 3) * 24, -4 + hash2(y, x + i, 4) * 8, 2, 1);
+    }
+  }
+  if (!planted) return;
+  const ripe = mat >= 100;
+  const stage = ripe ? 1 : mat / 100;
+  for (let k = -2; k <= 2; k++) {
+    for (let j = 0; j < 5; j++) {
+      const [ax, ay] = iso(-0.36 + j * 0.18, k / 6);
+      const sway = Math.sin(time / 700 + j + k) * stage * 1.2;
+      const h = 2 + stage * 11;
+      ctx.strokeStyle = ripe ? '#b8962e' : shade('#6fae3c', -0.2 + stage * 0.15);
+      ctx.lineWidth = 1.2 + stage;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.quadraticCurveTo(ax + sway, ay - h / 2, ax + sway * 1.5, ay - h);
+      ctx.stroke();
+      if (stage > 0.35) {
+        ctx.fillStyle = ripe ? '#f0cf52' : '#8fd14f';
+        ctx.beginPath();
+        ctx.ellipse(ax + sway * 1.5 - 1.5, ay - h * 0.6, 2.2 * stage + 0.5, 1.2, -0.6, 0, Math.PI * 2);
+        ctx.ellipse(ax + sway * 1.5 + 1.5, ay - h * 0.75, 2.2 * stage + 0.5, 1.2, 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (ripe) {
+        ctx.fillStyle = '#ffe07a';
+        ctx.beginPath(); ctx.ellipse(ax + sway * 1.5, ay - h - 2, 1.8, 3.2, 0, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+  if (ripe) {
+    const a = 0.4 + Math.sin(time / 300 + x) * 0.3;
+    ctx.fillStyle = `rgba(255,246,200,${a})`;
+    ctx.beginPath(); ctx.arc(10, -18, 2, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/** Recursos sueltos en el suelo */
+export function paintDrops(ctx: C, kinds: string[], n: number): void {
+  shadowEllipse(ctx, 1, 2, 10, 4, 0.25);
+  const m = Math.min(8, n);
+  for (let i = 0; i < m; i++) {
+    const kind = kinds[i % kinds.length] as ResKind;
+    const px = -8 + hash2(i, n, 7) * 16;
+    const py = -1 + hash2(n, i, 8) * 5;
+    ctx.fillStyle = RES_COLORS[kind] ?? '#aaa';
+    ctx.beginPath();
+    ctx.moveTo(px - 3, py);
+    ctx.lineTo(px - 1, py - 3);
+    ctx.lineTo(px + 3, py - 2);
+    ctx.lineTo(px + 2, py + 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(px - 1, py - 2.5, 1.5, 1);
+  }
+}
+
+function paintDrone(ctx: C, type: 'granjero' | 'hacker', color: string, time: number, st: UnitPaintState): void {
+  const scout = type === 'hacker';
   const hover = (scout ? 22 : 16) + Math.sin(time / 260) * 2;
   shadowEllipse(ctx, 0, 2, scout ? 12 : 14, scout ? 5 : 6, 0.35);
   ctx.save();
@@ -1069,38 +1186,60 @@ function paintDrone(ctx: C, type: 'dron' | 'explorador', color: string, time: nu
   }
   // cuerpo
   if (scout) {
+    // dron hacker: carcasa grafito, visor rojo, antena de interferencia
     const g = ctx.createLinearGradient(-8, -8, 8, 6);
-    g.addColorStop(0, '#f6fbfb');
-    g.addColorStop(1, '#b8c6c8');
+    g.addColorStop(0, '#5a646a');
+    g.addColorStop(1, '#2a3136');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.ellipse(0, 0, 9, 5.5, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = rgba('#5fe8ff', 0.9);
+    ctx.strokeStyle = rgba('#ff5d73', 0.85);
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.ellipse(0, 1, 11, 6, 0, 0, Math.PI * 2); ctx.stroke();
     ctx.strokeStyle = '#9aa7ab';
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(2, -4); ctx.lineTo(4, -12); ctx.stroke();
-    ctx.fillStyle = '#5fe8ff';
-    ctx.beginPath(); ctx.arc(4, -12, 1.6, 0, Math.PI * 2); ctx.fill();
-  } else {
-    isoBox(ctx, 0, 4, 0.3, 0.3, 9, '#f3f6f4', '#dfe5e2', '#aab5b3');
+    ctx.beginPath(); ctx.moveTo(2, -4); ctx.lineTo(3, -10); ctx.lineTo(6, -13); ctx.stroke();
+    const on = Math.floor(time / 350) % 2 === 0;
+    ctx.fillStyle = on ? '#ff5d73' : '#7a2a35';
+    ctx.beginPath(); ctx.arc(6, -13, 1.8, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = color;
+    ctx.fillRect(-6, -1, 5, 1.5);
+    if (st.working) {
+      // ondas de hackeo
+      for (let i = 0; i < 3; i++) {
+        const k = ((time / 500 + i / 3) % 1);
+        ctx.strokeStyle = rgba('#ff5d73', 1 - k);
+        ctx.beginPath(); ctx.ellipse(0, 4, 6 + k * 22, 3 + k * 11, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+  } else {
+    // dron granjero: blanco, franja verde, depósito de agua y tolva de semillas
+    isoBox(ctx, 0, 4, 0.3, 0.3, 9, '#f3f6f4', '#dfe5e2', '#aab5b3');
+    ctx.fillStyle = '#8fd14f';
     ctx.fillRect(-9, -2, 18, 2.5);
-    // garra/taladro
-    ctx.strokeStyle = PAL.amber;
-    ctx.lineWidth = 2;
-    const drill = st.working ? Math.sin(time / 40) * 1.5 : 0;
-    ctx.beginPath(); ctx.moveTo(-3, 5); ctx.lineTo(-4 + drill, 11); ctx.moveTo(3, 5); ctx.lineTo(4 - drill, 11); ctx.stroke();
-    ctx.fillStyle = PAL.amberDark;
-    ctx.beginPath(); ctx.moveTo(-2, 9); ctx.lineTo(2, 9); ctx.lineTo(0, 14); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = color;
+    ctx.fillRect(-9, 0.5, 18, 1.2);
+    ctx.fillStyle = rgba('#6fd0f0', 0.9);
+    ctx.beginPath(); ctx.ellipse(6, -6, 3.5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#7d8a92';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(0, 6); ctx.lineTo(0, 11); ctx.stroke();
+    ctx.fillStyle = '#5d676c';
+    ctx.beginPath(); ctx.moveTo(-3, 11); ctx.lineTo(3, 11); ctx.lineTo(0, 14); ctx.closePath(); ctx.fill();
     if (st.carrying > 0) {
-      ctx.fillStyle = '#b5673a';
-      ctx.fillRect(-4, 6, 8, 3 * st.carrying + 1);
+      ctx.fillStyle = '#e6c34f';
+      ctx.beginPath(); ctx.ellipse(-5, -5, 3.5, 2 + st.carrying * 1.5, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    if (st.working) {
+      for (let i = 0; i < 6; i++) {
+        const k = ((time / 250 + i / 6) % 1);
+        ctx.fillStyle = rgba('#9fe3f0', 1 - k);
+        ctx.beginPath(); ctx.arc((i - 2.5) * 1.5 * k * 3, 14 + k * 14, 1.3, 0, Math.PI * 2); ctx.fill();
+      }
     }
   }
   // ojo / sensor
   const [fx, fy] = [[5, 2], [0, 4], [-5, 2], [0, -2]][st.facing];
-  ctx.fillStyle = scout ? '#5fe8ff' : color;
+  ctx.fillStyle = scout ? '#ff5d73' : color;
   ctx.beginPath(); ctx.arc(fx, fy - (scout ? 0 : 6), 2, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
   ctx.fillRect(fx - 0.5, fy - (scout ? 1 : 7), 1, 1);

@@ -6,8 +6,8 @@ import {
   binop, compare, delItem, formatValue, getItem, getIter, inplace, iterNext, setItem, slice, unary,
 } from './ops';
 import {
-  BoundMethod, Builtin, Env, EXC_TYPES, ExcObj, ExcType, Iter, ModuleObj, PyDict, PyError, PyFunc, PySet, PyRecord,
-  Tuple, err, pyRepr, pyStr, truthy, typeName, type Value,
+  BoundMethod, Builtin, Env, EXC_TYPES, ExcObj, ExcType, Iter, ModuleObj, PyBound, PyClass, PyDict, PyError, PyFunc,
+  PyInstance, PySet, PyRecord, Tuple, err, pyRepr, pyStr, truthy, typeName, type Value,
 } from './values';
 
 export const MAX_DEPTH = 200;
@@ -38,6 +38,8 @@ export interface Frame {
   curExc: ExcObj | null;
   importOf: string | null;
   jsBoundary: boolean;
+  classOf: { name: string; bases: Value[] } | null;
+  initOf: PyInstance | null;
 }
 
 export interface Bundle {
@@ -73,6 +75,8 @@ export class VM implements VMApi {
   bundle: Bundle;
   lastLine = 0;
   lastMod = '__main__';
+  /** jerarquía de excepciones definidas por el jugador: hija → madre */
+  excParent = new Map<string, string>();
 
   constructor(bundle: Bundle, host: Host, seed = 12345) {
     this.bundle = bundle;
@@ -112,7 +116,7 @@ export class VM implements VMApi {
   }
 
   newFrame(mod: string, ci: number, env: Env, globals: Env): Frame {
-    return { mod, ci, ip: 0, stack: [], env, globals, handlers: [], curExc: null, importOf: null, jsBoundary: false };
+    return { mod, ci, ip: 0, stack: [], env, globals, handlers: [], curExc: null, importOf: null, jsBoundary: false, classOf: null, initOf: null };
   }
 
   // ───── VMApi ─────
@@ -161,6 +165,15 @@ export class VM implements VMApi {
 
   // ───── ejecución ─────
 
+  private pendingThrow: PyError | null = null;
+
+  /** Reanuda tras una acción lanzando una excepción en el punto de la llamada. */
+  resumeThrow(e: PyError): void {
+    if (!this.waiting) return;
+    this.waiting = false;
+    this.pendingThrow = e;
+  }
+
   /** Reanuda tras una acción, con su resultado. */
   resume(value: Value): void {
     if (!this.waiting) return;
@@ -173,6 +186,11 @@ export class VM implements VMApi {
     if (this.finished) return { s: 'done' };
     if (this.waiting) throw new Error('VM esperando resultado de acción');
     try {
+      if (this.pendingThrow) {
+        const e = this.pendingThrow;
+        this.pendingThrow = null;
+        if (!this.handle(e, false)) throw e;
+      }
       while (this.frames.length) {
         if (this.budgetLeft <= 0) return { s: 'budget' };
         const r = this.step(false);
@@ -282,6 +300,7 @@ export class VM implements VMApi {
           const o = st.pop()!;
           const v = st.pop()!;
           if (o instanceof PyRecord) o.f[arg as string] = v;
+          else if (o instanceof PyInstance || o instanceof PyClass) o.attrs.set(arg as string, v);
           else if (o instanceof ModuleObj) this.modules.get(o.name)!.env.vars.set(arg as string, v);
           else err('AttributeError', `no se pueden crear atributos en '${typeName(o)}' (usa un diccionario)`);
           break;
@@ -302,13 +321,25 @@ export class VM implements VMApi {
           const obj = st.pop()!;
           const kw: Record<string, Value> = {};
           kwn.forEach((k, i) => (kw[k] = kwv[i]));
-          if (obj instanceof ModuleObj || (obj instanceof PyRecord && obj.f[name] !== undefined)) {
+          if (obj instanceof ModuleObj || (obj instanceof PyRecord && obj.f[name] !== undefined) || obj instanceof PyInstance || obj instanceof PyClass) {
             return this.invoke(f, this.getAttr(obj, name), args, kw, sync);
           }
           if (obj instanceof PyDict && !hasMethod(obj, name) && obj.has(name)) {
             err('AttributeError', `los diccionarios no tienen atributos: usa d["${name}"]`);
           }
           st.push(callMethod(this, obj, name, args, kw));
+          break;
+        }
+        case Op.MAKE_CLASS: {
+          const [ci, nb, name] = arg as [number, number, string];
+          const bases = st.splice(st.length - nb, nb);
+          for (const b of bases) {
+            if (!(b instanceof PyClass) && !(b instanceof ExcType)) err('TypeError', `una clase sólo puede heredar de otra clase, no de '${typeName(b)}'`);
+          }
+          if (this.frames.length >= MAX_DEPTH) err('RecursionError', 'demasiadas llamadas anidadas');
+          const nf = this.newFrame(f.mod, ci, new Env(f.env), f.globals);
+          nf.classOf = { name, bases };
+          this.frames.push(nf);
           break;
         }
         case Op.MAKE_FUNC: {
@@ -326,9 +357,15 @@ export class VM implements VMApi {
             if (caller) caller.stack.push(new ModuleObj(f.importOf));
             break;
           }
-          if (f.jsBoundary) return { value: v };
+          let out: Value = v;
+          if (f.classOf) out = this.buildClass(f);
+          else if (f.initOf) {
+            if (v !== null) err('TypeError', '__init__ no debe devolver nada (return sin valor)');
+            out = f.initOf;
+          }
+          if (f.jsBoundary) return { value: out };
           const caller = this.frames[this.frames.length - 1];
-          if (caller) caller.stack.push(v);
+          if (caller) caller.stack.push(out);
           break;
         }
         case Op.GET_ITER: st.push(getIter(st.pop()!)); break;
@@ -354,8 +391,9 @@ export class VM implements VMApi {
           const e = st.pop() as ExcObj;
           const types = t instanceof Tuple ? t.items : [t];
           st.push(types.some((x) => {
-            if (!(x instanceof ExcType)) err('TypeError', 'except necesita un tipo de error, p. ej. except ValueError:');
-            return (x as ExcType).name === 'Exception' || (x as ExcType).name === e.type;
+            const nm = x instanceof ExcType ? x.name : x instanceof PyClass && x.excBase ? x.name : null;
+            if (!nm) err('TypeError', 'except necesita un tipo de error, p. ej. except ValueError:');
+            return this.excIsSub(e.type, nm!);
           }));
           break;
         }
@@ -372,6 +410,7 @@ export class VM implements VMApi {
           }
           let e = st.pop()!;
           if (e instanceof ExcType) e = new ExcObj(e.name, '');
+          else if (e instanceof PyClass && e.excBase) e = new ExcObj(e.name, '');
           if (!(e instanceof ExcObj)) err('TypeError', 'sólo se pueden lanzar errores, p. ej. raise ValueError("mensaje")');
           throw new PyError((e as ExcObj).type, (e as ExcObj).msg);
         }
@@ -427,6 +466,42 @@ export class VM implements VMApi {
     return false;
   }
 
+  buildClass(f: Frame): PyClass {
+    const { name, bases } = f.classOf!;
+    let excBase: string | null = null;
+    const clsBases: PyClass[] = [];
+    for (const b of bases) {
+      if (b instanceof ExcType) excBase = b.name;
+      else if (b instanceof PyClass) { clsBases.push(b); if (b.excBase) excBase = b.name; }
+    }
+    const cls = new PyClass(name, clsBases, excBase);
+    for (const [k, v] of f.env.vars) cls.attrs.set(k, v);
+    if (excBase) this.excParent.set(name, excBase);
+    return cls;
+  }
+
+  excIsSub(type: string, of: string): boolean {
+    if (of === 'Exception') return true;
+    let t: string | undefined = type;
+    for (let i = 0; t && i < 50; i++) {
+      if (t === of) return true;
+      t = this.excParent.get(t);
+    }
+    return false;
+  }
+
+  /** str() respetando __str__ de las clases del jugador */
+  strOf(v: Value): string {
+    if (v instanceof PyInstance) {
+      const m = v.cls.lookup('__str__') ?? v.cls.lookup('__repr__');
+      if (m instanceof PyFunc) return pyStr(this.callSync(m, [v]));
+    }
+    if (Array.isArray(v) && v.some((x) => x instanceof PyInstance)) {
+      return '[' + v.map((x) => (x instanceof PyInstance ? this.strOf(x) : pyRepr(x))).join(', ') + ']';
+    }
+    return pyStr(v);
+  }
+
   lookup(env: Env, name: string): Value {
     let e: Env | null = env;
     while (e) {
@@ -445,6 +520,21 @@ export class VM implements VMApi {
   }
 
   getAttr(o: Value, name: string): Value {
+    if (o instanceof PyInstance) {
+      const own = o.attrs.get(name);
+      if (own !== undefined) return own;
+      const v = o.cls.lookup(name);
+      if (v === undefined) {
+        const avail = [...o.attrs.keys()].join(', ');
+        return err('AttributeError', `el objeto ${o.cls.name} no tiene el atributo '${name}'${avail ? ` (tiene: ${avail})` : ''}`);
+      }
+      return v instanceof PyFunc ? new PyBound(o, v) : v;
+    }
+    if (o instanceof PyClass) {
+      const v = o.lookup(name);
+      if (v === undefined) return err('AttributeError', `la clase ${o.name} no tiene '${name}'`);
+      return v;
+    }
     if (o instanceof PyRecord) {
       if (name in o.f) return o.f[name];
       return err('AttributeError', `${o.type} no tiene el atributo '${name}' (disponibles: ${Object.keys(o.f).join(', ')})`);
@@ -518,9 +608,28 @@ export class VM implements VMApi {
   }
 
   invoke(f: Frame, fn: Value, args: Value[], kw: Record<string, Value>, sync: boolean): 'action' | undefined {
+    if (fn instanceof PyBound) {
+      args = [fn.self, ...args];
+      fn = fn.fn;
+    }
     if (fn instanceof PyFunc) {
       if (this.frames.length >= MAX_DEPTH) err('RecursionError', `demasiadas llamadas anidadas (máx. ${MAX_DEPTH}); ¿recursión sin caso base?`);
       this.frames.push(this.makeFuncFrame(fn, args, kw));
+      return undefined;
+    }
+    if (fn instanceof PyClass) {
+      if (fn.excBase) { f.stack.push(new ExcObj(fn.name, args.length ? this.strOf(args[0]) : '')); return undefined; }
+      const inst = new PyInstance(fn);
+      const init = fn.lookup('__init__');
+      if (init instanceof PyFunc) {
+        if (this.frames.length >= MAX_DEPTH) err('RecursionError', 'demasiadas llamadas anidadas');
+        const nf = this.makeFuncFrame(init, [inst, ...args], kw);
+        nf.initOf = inst;
+        this.frames.push(nf);
+        return undefined;
+      }
+      if (args.length) err('TypeError', `${fn.name}() no recibe argumentos (define __init__ para aceptarlos)`);
+      f.stack.push(inst);
       return undefined;
     }
     const r = this.callNative(fn, args, kw);
@@ -550,6 +659,14 @@ export class VM implements VMApi {
     if (fn instanceof BoundMethod) return callMethod(this, fn.self, fn.name, args, kw);
     if (fn instanceof ExcType) return new ExcObj(fn.name, args.length ? pyStr(args[0]) : '');
     if (fn instanceof PyFunc) return this.callSync(fn, args);
+    if (fn instanceof PyBound) return this.callSync(fn.fn, [fn.self, ...args]);
+    if (fn instanceof PyClass) {
+      if (fn.excBase) return new ExcObj(fn.name, args.length ? this.strOf(args[0]) : '');
+      const inst = new PyInstance(fn);
+      const init = fn.lookup('__init__');
+      if (init instanceof PyFunc) this.callSync(init, [inst, ...args]);
+      return inst;
+    }
     return err('TypeError', `'${typeName(fn)}' no es una función (${pyRepr(fn)} no se puede llamar con paréntesis)`);
   }
 }

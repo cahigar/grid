@@ -3,7 +3,6 @@ import type { CompGen, Expr, Handler, Param, Stmt } from './ast';
 import { PySyntaxError, tokenize, type Token } from './lexer';
 
 const UNSUPPORTED: Record<string, string> = {
-  class: 'las clases todavía no están disponibles en PyGrid (usa diccionarios o funciones)',
   with: "'with' no está disponible en PyGrid",
   yield: 'los generadores (yield) no están disponibles en PyGrid',
   async: "'async' no está disponible en PyGrid",
@@ -129,6 +128,24 @@ class Parser {
           const f = body[0];
           if (f && f.k === 'expr' && f.e.k === 'str') doc = f.e.v;
           return [{ k: 'def', name, params, body, line: t.line, doc }];
+        }
+        case 'class': {
+          this.p++;
+          const name = this.ident();
+          const bases: Expr[] = [];
+          if (this.eatOp('(')) {
+            while (!this.isOp(')')) {
+              bases.push(this.expr());
+              if (!this.eatOp(',')) break;
+            }
+            this.expectOp(')');
+          }
+          this.expectOp(':');
+          const body = this.block();
+          let doc: string | null = null;
+          const f = body[0];
+          if (f && f.k === 'expr' && f.e.k === 'str') doc = f.e.v;
+          return [{ k: 'class', name, bases, body, line: t.line, doc }];
         }
         case 'try': {
           this.p++;

@@ -103,6 +103,39 @@ export class ModuleObj {
   constructor(public name: string) {}
 }
 
+let instanceSeq = 1;
+
+/** Clase definida por el jugador (class Nombre: …) */
+export class PyClass {
+  attrs = new Map<string, Value>();
+  constructor(public name: string, public bases: PyClass[], public excBase: string | null) {}
+  lookup(name: string): Value | undefined {
+    const v = this.attrs.get(name);
+    if (v !== undefined) return v;
+    for (const b of this.bases) {
+      const w = b.lookup(name);
+      if (w !== undefined) return w;
+    }
+    return undefined;
+  }
+  isSub(c: PyClass): boolean {
+    return c === this || this.bases.some((b) => b.isSub(c));
+  }
+}
+
+export class PyInstance {
+  attrs = new Map<string, Value>();
+  id: number;
+  constructor(public cls: PyClass, id?: number) {
+    this.id = id ?? instanceSeq++;
+    if (id !== undefined && id >= instanceSeq) instanceSeq = id + 1;
+  }
+}
+
+export class PyBound {
+  constructor(public self: Value, public fn: PyFunc) {}
+}
+
 export class ExcType {
   constructor(public name: string) {}
 }
@@ -128,12 +161,17 @@ export type Value =
   | Iter
   | ModuleObj
   | ExcType
-  | ExcObj;
+  | ExcObj
+  | PyClass
+  | PyInstance
+  | PyBound;
 
 export const EXC_TYPES = [
   'Exception', 'ValueError', 'TypeError', 'IndexError', 'KeyError', 'ZeroDivisionError', 'NameError',
   'AttributeError', 'RuntimeError', 'AssertionError', 'RecursionError', 'MemoryError', 'UnboundLocalError',
   'ImportError', 'StopIteration', 'OverflowError',
+  // errores del juego
+  'SinEnergiaError', 'SinRecursosError', 'CultivoNoMaduroError', 'AccionInvalidaError', 'FueraDeRangoError',
 ];
 
 // ───────────── utilidades ─────────────
@@ -157,6 +195,9 @@ export function typeName(v: Value): string {
   if (v instanceof ModuleObj) return 'module';
   if (v instanceof ExcType) return 'type';
   if (v instanceof ExcObj) return v.type;
+  if (v instanceof PyInstance) return v.cls.name;
+  if (v instanceof PyClass) return 'type';
+  if (v instanceof PyBound) return 'method';
   return 'object';
 }
 
@@ -180,6 +221,8 @@ export function hashKey(v: Value): string {
   if (typeof v === 'string') return 's' + v;
   if (v instanceof Tuple) return 't(' + v.items.map(hashKey).join(',') + ')';
   if (v instanceof ExcType || v instanceof Builtin) return 'b' + v.name;
+  if (v instanceof PyInstance) return 'i' + v.id;
+  if (v instanceof PyClass) return 'c' + v.name;
   if (Array.isArray(v)) return err('TypeError', "una lista no puede ser clave de diccionario ni elemento de set (usa una tupla: (x, y))");
   return err('TypeError', `el tipo '${typeName(v)}' no puede usarse como clave`);
 }
@@ -287,6 +330,9 @@ export function pyStr(v: Value, depth = 0, _repr = false): string {
   if (v instanceof ExcType) return `<class '${v.name}'>`;
   if (v instanceof ExcObj) return _repr ? `${v.type}(${pyRepr(v.msg)})` : v.msg;
   if (v instanceof Iter) return '<iterador>';
+  if (v instanceof PyInstance) return `<objeto ${v.cls.name}>`;
+  if (v instanceof PyClass) return `<clase '${v.name}'>`;
+  if (v instanceof PyBound) return `<método ${v.fn.name}>`;
   return '<objeto>';
 }
 

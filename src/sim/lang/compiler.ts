@@ -16,6 +16,7 @@ export enum Op {
   SETUP_EXCEPT, POP_BLOCK, EXC_MATCH, RERAISE, RAISE, POP_EXC,
   IMPORT, IMPORT_FROM, IMPORT_STAR,
   ASSERT_FAIL,
+  MAKE_CLASS,
 }
 
 export interface Code {
@@ -83,8 +84,8 @@ class Compiler {
     this.emit(Op.CONST, null);
     this.emit(Op.RETURN);
     const defs = body
-      .filter((s): s is Extract<Stmt, { k: 'def' }> => s.k === 'def')
-      .map((s) => ({ name: s.name, params: s.params.map((p) => p.name), doc: s.doc, line: s.line }));
+      .filter((s): s is Extract<Stmt, { k: 'def' | 'class' }> => s.k === 'def' || s.k === 'class')
+      .map((s) => ({ name: s.name, params: s.k === 'def' ? s.params.map((p) => p.name) : [], doc: s.doc, line: s.line }));
     return { name: this.modName, codes: this.codes, defs };
   }
 
@@ -275,6 +276,21 @@ class Compiler {
         this.func(s.name, s.params, s.body, s.doc, s.line);
         this.storeName(s.name);
         break;
+      case 'class': {
+        for (const b of s.bases) this.expr(b);
+        const code = this.newCode(s.name, [], 0, false, s.doc);
+        const idx = this.codes.length - 1;
+        const outer = this.ctx;
+        this.ctx = { code, isModule: true, locals: new Set(), globals: new Set(), nonlocals: new Set(), loops: [], tryDepth: 0 };
+        this.stmts(s.body);
+        this.emit(Op.CONST, null);
+        this.emit(Op.RETURN);
+        this.ctx = outer;
+        this.line = s.line;
+        this.emit(Op.MAKE_CLASS, [idx, s.bases.length, s.name]);
+        this.storeName(s.name);
+        break;
+      }
       case 'global':
       case 'nonlocal':
         if (s.k === 'nonlocal' && c.isModule) this.err("'nonlocal' sólo puede usarse dentro de funciones");
@@ -588,6 +604,7 @@ function collectAssigned(body: Stmt[], out: Set<string>): void {
         collectAssigned(s.orelse, out);
         break;
       case 'def': out.add(s.name); break;
+      case 'class': out.add(s.name); break;
       case 'import': s.names.forEach((n) => out.add(n.as ?? n.name)); break;
       case 'from': s.names.forEach((n) => n.name !== '*' && out.add(n.as ?? n.name)); break;
       case 'try':

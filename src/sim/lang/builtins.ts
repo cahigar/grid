@@ -3,12 +3,13 @@ import {
   contains, getIter, isCallable, iterNext, iterToArray, len, MAX_SEQ,
 } from './ops';
 import {
-  Builtin, BoundMethod, ExcObj, ExcType, PyDict, PyFunc, PySet, Range, PyRecord, Tuple, err, fmtNum, pyCmp, pyEq,
+  Builtin, BoundMethod, ExcObj, ExcType, PyClass, PyDict, PyFunc, PyInstance, PySet, Range, PyRecord, Tuple, err, fmtNum, pyCmp, pyEq,
   pyRepr, pyStr, seqItems, toInt, toNum, truthy, typeName, type Value,
 } from './values';
 
 export interface VMApi {
   callSync(fn: Value, args: Value[]): Value;
+  strOf(v: Value): string;
   print(text: string): void;
   random(): number;
   charge(instr: number): void;
@@ -66,7 +67,7 @@ function toStrNum(name: string, v: Value, int: boolean): number {
 export const BUILTINS: Record<string, BuiltinFn> = {
   print: (vm, args, kw) => {
     const sep = kw.sep !== undefined ? pyStr(kw.sep) : ' ';
-    vm.print(args.map((a) => pyStr(a)).join(sep));
+    vm.print(args.map((a) => vm.strOf(a)).join(sep));
     return null;
   },
   len: (_vm, args) => { argc('len', args, 1); return len(args[0]); },
@@ -90,7 +91,7 @@ export const BUILTINS: Record<string, BuiltinFn> = {
   },
   int: (_vm, args) => { argc('int', args, 0, 1); return args.length ? toStrNum('int', args[0], true) : 0; },
   float: (_vm, args) => { argc('float', args, 0, 1); return args.length ? toStrNum('float', args[0], false) : 0; },
-  str: (_vm, args) => { argc('str', args, 0, 1); return args.length ? pyStr(args[0]) : ''; },
+  str: (vm, args) => { argc('str', args, 0, 1); return args.length ? vm.strOf(args[0]) : ''; },
   repr: (_vm, args) => { argc('repr', args, 1); return pyRepr(args[0]); },
   bool: (_vm, args) => { argc('bool', args, 0, 1); return args.length ? truthy(args[0]) : false; },
   list: (vm, args) => { argc('list', args, 0, 1); const r = args.length ? iterToArray(args[0]) : []; vm.charge(r.length); return r; },
@@ -169,6 +170,7 @@ export const BUILTINS: Record<string, BuiltinFn> = {
     return types.some((t) => {
       if (t instanceof Builtin) return t.name === tn || (t.name === 'float' && tn === 'int') || (t.name === 'int' && tn === 'bool');
       if (t instanceof ExcType) return args[0] instanceof ExcObj && (t.name === 'Exception' || t.name === args[0].type);
+      if (t instanceof PyClass) return args[0] instanceof PyInstance && args[0].cls.isSub(t);
       return false;
     });
   },

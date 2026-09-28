@@ -1,47 +1,81 @@
-// Contenido inicial: plantillas del jugador y colonias rivales (programadas en PyGrid, como un jugador más).
+// Contenido inicial: plantillas del jugador y programas de las colonias bot (escritos en PyGrid).
 
 export const STARTER_FILES: Record<string, string> = {
-  'main.py': `# ═══════════════ G.R.I.D. · programa de tu dron ═══════════════
-# Tu dron sólo sabe hacer cosas muy básicas. Todo lo demás lo programas tú.
-# Pulsa ▶ Ejecutar (Ctrl+Enter) para cargar este programa en la unidad
-# seleccionada. El mundo sigue funcionando aunque cierres el juego.
-#
-# PRIMER OBJETIVO
-#   encontrar mineral → llegar → extraer → volver → descargar → repetir
-#
-# Primitivas: mover("N"|"S"|"E"|"O")  escanear()  extraer()  descargar()
-#             posicion()  base()  bateria()  carga()  print()
-# Consulta el Manual (📖) para ver todas, con su tiempo y coste.
+  'minero.py': `# ═══ MINERO ═══  vehículo de tierra: pica vetas y recoge lo que suelta
+# picar()    → rompe 1 unidad de la veta que tienes debajo (cae al suelo)
+# recoger()  → mete en la carga lo que hay en el suelo
+# escanear() → lista de vetas cercanas (r.tipo, r.x, r.y, r.cantidad)
+# descargar() junto a la base o a un almacén → ¡puntos!
 
-print("Hola, soy", nombre(), "y estoy en", posicion())
-
-for i in range(4):
-    mover("E")
-
-recursos = escanear()
-print("Veo", len(recursos), "recursos")
-for r in recursos:
-    print(r.tipo, "en", (r.x, r.y))
+print("Minero listo en", posicion())
+vetas = escanear()
+print("Veo", len(vetas), "vetas")
+for v in vetas:
+    print(v.tipo, "en", (v.x, v.y))
 `,
-  'nav.py': `# ═══ Tu biblioteca personal ═══
-# Las funciones que escribas aquí se pueden usar desde cualquier programa:
-#
+  'granjero.py': `# ═══ DRON GRANJERO ═══  vuela sobre todo; trabaja en los huertos
+# plantar()  regar()  recolectar()  cargar_agua()  agua()
+# parcela_aqui() → Parcela (humedad, madurez, lista) o None
+# Tu huerto está 3 casillas al Este del muelle.
+# Un cultivo crece si su humedad es > 30. ¡Recolectar antes de tiempo lanza un error!
+
+for i in range(3):
+    mover("E")
+p = parcela_aqui()
+print("Parcela:", p)
+plantar()
+regar()
+`,
+  'constructor.py': `# ═══ CONSTRUCTOR ═══  construir(tipo, direccion)
+# tipos: "camino", "almacen", "silo", "panel", "antena", "aspersor"
+# coste_edificio(tipo) → cuánto cuesta. Los recursos salen de tu almacén.
+# Si no hay recursos → SinRecursosError (¡usa try/except!)
+
+print("Almacén:", almacen())
+print("Un panel cuesta", coste_edificio("panel"))
+mover("S")
+construir("camino", "S")
+`,
+  'hacker.py': `# ═══ DRON HACKER ═══  vuela; junto a una unidad enemiga puede tocar su código
+# radar() → unidades cercanas (u.nombre, u.tipo, u.x, u.y, u.enemiga)
+# hackear(direccion, modo)  modos: "invertir" ("N"↔"S", "E"↔"O"), "numero" (±1), "borrar"
+# Reglas: 4 s junto al objetivo, 45 s de enfriamiento, la víctima queda protegida 40 s.
+# Un aspersor enemigo puede mojarte y cancelar el hackeo.
+
+for u in radar():
+    print(u.nombre, u.tipo, (u.x, u.y), "enemiga" if u.enemiga else "aliada")
+`,
+  'aspersor.py': `# ═══ ASPERSOR ═══  edificio programable (constrúyelo con el constructor)
+# disparar(x, y) → riega esa casilla y sus 4 vecinas; moja drones enemigos (radio 3)
+# radar() → unidades cercanas   agua() → depósito (se rellena solo)
+
+while True:
+    for u in radar():
+        if u.enemiga and u.tipo in ("granjero", "hacker"):
+            disparar(u.x, u.y)
+    esperar(1)
+`,
+  'nav.py': `# ═══ Tu biblioteca ═══
+# Las funciones de este archivo se pueden usar desde cualquier programa:
 #     from nav import ir_a
-#
-# Idea: escribe ir_a(x, y) usando posicion() y mover(), y ya no tendrás
-# que volver a pensar en cómo moverte.
+# Idea: escribe ir_a(x, y) con posicion() y mover(), y úsala en todas tus unidades.
 `,
 };
 
-const BFS_LIB = `
+/** Qué archivo se asigna por defecto a cada tipo de unidad */
+export const DEFAULT_PROGRAM: Record<string, string> = {
+  minero: 'minero.py', granjero: 'granjero.py', constructor: 'constructor.py', hacker: 'hacker.py', aspersor: 'aspersor.py',
+};
+
+const RUTAS = `
 DIRS = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "O": (-1, 0)}
 
-def bfs(destino):
+def bfs(destino, limite=1500):
     inicio = posicion()
     padre = {inicio: None}
     cola = [inicio]
     i = 0
-    while i < len(cola) and i < 900:
+    while i < len(cola) and i < limite:
         p = cola[i]
         i += 1
         if p == destino:
@@ -66,142 +100,118 @@ def ir_a(x, y):
     camino = bfs((x, y))
     if camino is None:
         return False
-    puntos = []
-    px, py = posicion()
-    for d in camino:
-        px, py = px + DIRS[d][0], py + DIRS[d][1]
-        puntos.append((px, py))
-    dibujar_ruta(puntos)
     for d in camino:
         if not mover(d):
             return False
     return True
+
+def volver():
+    bx, by = base()
+    return ir_a(bx, by)
 `;
 
-export const BOTS: { id: string; name: string; files: Record<string, string>; main: string }[] = [
-  {
-    id: 'bot-aurora',
-    name: 'Colonia Aurora',
-    main: 'minero.py',
-    files: {
-      'minero.py': `import random
-# Minero voraz: se acerca en línea recta y esquiva al azar.
-def ir_a(tx, ty):
-    for _ in range(120):
-        x, y = posicion()
-        if (x, y) == (tx, ty):
-            return True
-        opciones = []
-        if tx > x: opciones.append("E")
-        if tx < x: opciones.append("O")
-        if ty > y: opciones.append("S")
-        if ty < y: opciones.append("N")
-        if not mover(random.choice(opciones)):
-            mover(random.choice(["N", "S", "E", "O"]))
-    return False
-
-while True:
-    if bateria() < 35:
-        bx, by = base()
-        ir_a(bx, by)
-        recargar()
-    vetas = [r for r in escanear() if r.tipo != "biomasa"]
-    if vetas:
-        v = vetas[0]
-        if ir_a(v.x, v.y):
-            while carga() < carga_max() and extraer():
-                pass
-        bx, by = base()
-        ir_a(bx, by)
-        descargar()
-        if bateria() < 50:
-            recargar()
-    else:
-        for _ in range(5):
-            mover(random.choice(["N", "S", "E", "O"]))
-`,
-    },
-  },
-  {
-    id: 'bot-taller9',
-    name: 'Taller 9',
-    main: 'logistica.py',
-    files: {
-      'rutas.py': BFS_LIB,
-      'logistica.py': `from rutas import ir_a, DIRS
+export const BOT_FILES: Record<string, string> = {
+  'rutas.py': RUTAS,
+  'minero.py': `from rutas import ir_a, volver
 import random
-# Explora con escáner, recuerda vetas en memoria y usa BFS para moverse.
 if "vetas" not in memoria:
     memoria["vetas"] = []
 
 def explorar():
     d = random.choice(["N", "S", "E", "O"])
-    for _ in range(random.randint(3, 7)):
+    for _ in range(random.randint(3, 6)):
         if not mover(d):
             break
 
 while True:
-    if bateria() < 35:
-        bx, by = base()
-        if not ir_a(bx, by):
-            explorar()
+    if bateria() < 30:
+        volver()
         recargar()
     for r in escanear():
-        if r.tipo in ("hierro", "cobre", "silicio") and (r.x, r.y) not in memoria["vetas"]:
+        if (r.x, r.y) not in memoria["vetas"]:
             memoria["vetas"].append((r.x, r.y))
-    if memoria["vetas"]:
-        x, y = memoria["vetas"][0]
-        if ir_a(x, y):
-            while carga() < carga_max():
-                if not extraer():
-                    memoria["vetas"].pop(0)
-                    break
-        else:
-            memoria["vetas"].pop(0)
-        if carga() > 0:
-            bx, by = base()
-            ir_a(bx, by)
-            descargar()
-            if bateria() < 60:
-                recargar()
-    else:
+    if not memoria["vetas"]:
         explorar()
+        continue
+    x, y = memoria["vetas"][0]
+    if ir_a(x, y):
+        while carga() < carga_max():
+            if not picar():
+                memoria["vetas"].pop(0)
+                recoger()
+                break
+            recoger()
+    else:
+        memoria["vetas"].pop(0)
+    if carga() > 0:
+        volver()
+        descargar()
 `,
-    },
-  },
-  {
-    id: 'bot-nido',
-    name: 'Nido Verde',
-    main: 'espiral.py',
-    files: {
-      'espiral.py': `# Exploración en espiral: tramos cada vez más largos, escaneando en cada esquina.
-lado = 2
-d = 0
-orden = ["E", "S", "O", "N"]
+  'granjero.py': `from rutas import ir_a, volver
 while True:
-    for _ in range(2):
-        for _ in range(lado):
-            mover(orden[d])
-        d = (d + 1) % 4
-        encontrados = escanear()
-        for r in encontrados:
-            compartido[(r.x, r.y)] = r.tipo
-    lado += 2
-    if lado > 14:
-        bx, by = base()
-        while posicion() != (bx, by):
-            x, y = posicion()
-            if x != bx:
-                ok = mover("E" if bx > x else "O")
-            else:
-                ok = mover("S" if by > y else "N")
-            if not ok:
-                d = (d + 1) % 4
-                mover(orden[d])
-                mover(orden[d])
+    hice_algo = False
+    for p in parcelas():
+        if not p.propia:
+            continue
+        if not p.plantada or p.humedad < 45 or p.lista:
+            ir_a(p.x, p.y)
+            if not p.plantada:
+                plantar()
+            if agua() == 0:
+                volver()
+                cargar_agua()
+                ir_a(p.x, p.y)
+            if p.lista and carga() < carga_max():
+                try:
+                    recolectar()
+                except CultivoNoMaduroError:
+                    pass
+            regar()
+            hice_algo = True
+    if carga() >= 4 or (carga() > 0 and not hice_algo):
+        volver()
+        descargar()
+    if bateria() < 30:
+        volver()
         recargar()
-        lado = 2
+    if not hice_algo:
+        esperar(3)
 `,
-    },
-  },
-];
+  'constructor.py': `bx, by = base()
+plan = [("panel", "S"), ("antena", "O"), ("aspersor", "E")]
+for tipo, d in plan:
+    while True:
+        try:
+            construir(tipo, d)
+            break
+        except SinRecursosError:
+            esperar(10)
+        except AccionInvalidaError as e:
+            print("no puedo:", e)
+            break
+    mover("S")
+`,
+  'hacker.py': `from rutas import ir_a
+import random
+while True:
+    enemigos = [u for u in radar() if u.enemiga and u.tipo != "aspersor"]
+    if not enemigos:
+        for _ in range(4):
+            mover(random.choice(["N", "S", "E", "O"]))
+        continue
+    e = enemigos[0]
+    x, y = posicion()
+    if abs(e.x - x) + abs(e.y - y) == 1:
+        d = "E" if e.x > x else "O" if e.x < x else "S" if e.y > y else "N"
+        try:
+            print(hackear(d, "invertir"))
+        except Exception as err:
+            print("no se pudo:", err)
+            esperar(5)
+    else:
+        mover("E" if e.x > x else "O" if e.x < x else "S" if e.y > y else "N")
+`,
+  'aspersor.py': STARTER_FILES['aspersor.py'],
+};
+
+export const BOT_NAMES = ['Colonia Aurora', 'Taller 9', 'Nido Verde', 'Brote Norte', 'Estación Kappa'];
