@@ -18,7 +18,7 @@ const $ = <E extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = 
 const STATUS_LABEL: Record<string, string> = {
   RUNNING: 'Activo', IDLE: 'En espera', DONE: 'Terminado', ERROR: 'Error', HIBERNATING: 'Hibernando', BLOCKED: 'Bloqueado',
 };
-const INV_DEFAULT: Record<string, true> = { 'minero.py': true, 'granjero.py': true, 'constructor.py': true, 'hacker.py': true, 'aspersor.py': true };
+const INV_DEFAULT: Record<string, true> = { 'minero.py': true, 'granjero.py': true, 'constructor.py': true, 'hacker.py': true, 'aspersor.py': true, 'base.py': true };
 const TERRAIN_LABEL: Record<string, string> = {
   hierba: 'Hierba', carretera: 'Carretera antigua', hormigon: 'Hormigón', maleza: 'Maleza', bosque: 'Bosque', agua: 'Agua',
   ruina: 'Ruina', roca: 'Roca', cultivo: 'Huerto', puente: 'Puente', base: 'Centro operativo', estructura: 'Instalación',
@@ -209,7 +209,7 @@ export class App {
         <button class="icon-btn" id="c-base" title="Centrar en la base (B)">${ICON.pin}</button>
         <button class="icon-btn on" id="c-grid" title="Mostrar grid (G)">${ICON.grid}</button>
       </div>
-      <div id="hint" class="panel">Arrastra para mover la cámara · rueda para zoom · <b>no controlas las máquinas: las programas</b></div>
+      <div id="hint" class="panel">Arrastra para mover la cámara · rueda para zoom · <b>tú programas, las máquinas trabajan</b></div>
       <div id="tileinfo"></div>
       <div id="toasts"></div>
       <div id="modal-root"></div>`;
@@ -283,7 +283,10 @@ export class App {
 
   // ───────────── unidades ─────────────
   renderUnits(now: number): void {
-    const units = this.myUnits();
+    // orden estable (en el espejo del alumno las unidades se reinsertan al llegar parches)
+    const ORDER = ['base', 'granjero', 'minero', 'constructor', 'hacker', 'aspersor'];
+    const rank = (u: Unit) => ORDER.indexOf(u.type);
+    const units = this.myUnits().sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id, 'es', { numeric: true }));
     $('#ucount').textContent = String(units.length);
     const card = (u: Unit) => {
       const st = unitStatus(u);
@@ -311,7 +314,7 @@ export class App {
       }).join('');
     } else html = units.map(card).join('');
     const list = $('#ulist');
-    if (list.innerHTML !== html) list.innerHTML = html;
+    if (list.dataset.h !== html) { list.dataset.h = html; list.innerHTML = html; }
     // opciones de destino del editor
     const sel = $<HTMLSelectElement>('#ed-target');
     const pool = this.be.god ? units.filter((u) => u.owner === this.owner()) : units;
@@ -399,7 +402,7 @@ export class App {
           : u.type === 'hacker'
             ? `<div class="stat"><div class="k">Módulo de hackeo</div><div class="v">${u.hackReadyAt > now ? `enfría ${Math.ceil((u.hackReadyAt - now) / 1000)} s` : 'listo'}</div></div>`
             : `<div class="stat"><div class="k">Señal</div><div class="v">${g.inSignal(u) ? 'sí' : 'no'}</div></div>`;
-      const sig = JSON.stringify([u.id, st, a?.label, a?.end, u.battery.toFixed(0), cargoCount(u), u.logs.length, u.logs[u.logs.length - 1]?.n, u.blocked?.attempts, u.x, u.y, u.program?.name, Math.floor(now / 250), files.length]);
+      const sig = JSON.stringify([u.id, st, a?.label, a?.end, u.battery.toFixed(0), cargoCount(u), u.logs.length, u.logs[u.logs.length - 1]?.n, u.blocked?.attempts, u.x, u.y, u.program?.name, files.length, Math.floor(u.water), u.hackReadyAt > now ? Math.ceil((u.hackReadyAt - now) / 1000) : 0, u.wetUntil > now, !!u.hacked && now - u.hacked.t < 20_000, g.inSignal(u), g.phase(now)]);
       if (sig === this.inspSig && !force) return;
       this.inspSig = sig;
       const logsEl = $('.logs', el);
@@ -488,7 +491,7 @@ export class App {
     const html = `<div class="lbl">${ICON.trophy} ${ph === 'prep' ? 'Preparación: programa tus unidades' : ph === 'play' ? 'Partida en curso' : ph === 'end' ? 'Partida terminada' : 'Clasificación'}</div>
       ${meIdx >= 0 ? `<div class="txt">Tus puntos: <b style="font-size:18px">${rows[meIdx].value}</b> · puesto ${meIdx + 1} de ${rows.length}</div>` : ''}
       ${top.map((r, i) => `<div class="mini-rk ${r.id === this.be.me ? 'me' : ''}"><span>${i + 1}</span><i style="background:${r.color}"></i><span class="n">${esc(r.name)}</span><b>${r.value}</b></div>`).join('')}`;
-    if (el.innerHTML !== html) el.innerHTML = html;
+    if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; }
   }
 
   renderObjective(): void {
@@ -502,7 +505,8 @@ export class App {
     const [a, b] = obs[i].progress();
     const html = `<div class="lbl">${ICON.target} Objetivo ${i + 1}/${obs.length}</div><div class="txt">${esc(obs[i].text)}</div>
       <div class="bar"><i style="width:${(a / b) * 100}%"></i></div><div class="cnt">${a} / ${b}</div>`;
-    if (el.innerHTML !== html) {
+    if (el.dataset.h !== html) {
+      el.dataset.h = html;
       if (el.dataset.i && el.dataset.i !== String(i)) this.toast(`Objetivo completado: ${obs[i - 1]?.text ?? ''}`, 'ok');
       el.dataset.i = String(i);
       el.innerHTML = html;
@@ -586,7 +590,7 @@ export class App {
   }
 
   renderTabs(): void {
-    const order = ['minero.py', 'granjero.py', 'constructor.py', 'hacker.py', 'aspersor.py'];
+    const order = ['minero.py', 'granjero.py', 'constructor.py', 'hacker.py', 'aspersor.py', 'base.py'];
     const rank = (f: string) => (order.includes(f) ? order.indexOf(f) : 10);
     const files = Object.keys(this.files()).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
     $('#tabs').innerHTML = files.map((f) => {
@@ -675,7 +679,11 @@ export class App {
     }
     this.simResult = null;
     this.r.selectedUnit = this.selected;
-    this.toast(`${u.name} ejecuta ${file}`, 'ok');
+    const now = this.be.now();
+    if (this.game.phase(now) === 'prep') {
+      const s = Math.ceil((this.game.playStart - now) / 1000);
+      this.toast(`${u.name} tiene cargado ${file}. Se pondrá en marcha cuando termine la preparación (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})`, 'info');
+    } else this.toast(`${u.name} ejecuta ${file}`, 'ok');
     this.renderConsole(this.be.now(), true);
     this.ed.refreshLint();
   }
@@ -762,7 +770,7 @@ export class App {
     this.modal(`
       <h2>Bienvenido, operador</h2>
       <p class="lead">Hace décadas la red industrial colapsó. La naturaleza ha reclamado el valle, pero bajo el musgo quedan hierro, cobre, silicio y máquinas que todavía obedecen. Tu colonia empieza hoy.</p>
-      <div class="rule"><b>No controlas las máquinas. Las programas.</b><br><span style="color:var(--muted);font-size:13px">Sin teclas de movimiento: escribes Python, lo cargas en tus unidades y ellas trabajan en tiempo real, también cuando cierras el juego.</span></div>
+      <div class="rule"><b>Tú escribes el código; las máquinas hacen el trabajo.</b><br><span style="color:var(--muted);font-size:13px">Sin teclas de movimiento: escribes Python, lo cargas en tus unidades y ellas trabajan en tiempo real, también cuando cierras el juego.</span></div>
       <div class="steps">
         <div class="step"><div class="n">1</div><div>Abre el <b>editor</b> (tecla <span class="kbd">E</span>), elige una unidad (minero, granjero, constructor o hacker), lee su programa y pulsa <b>▶ Ejecutar</b>.</div></div>
         <div class="step"><div class="n">2</div><div>Observa el log del dron. Consulta el <b>Manual</b> para ver cada primitiva, su tiempo y su coste de energía.</div></div>
@@ -850,7 +858,7 @@ export class App {
       <label for="s-name">Nombre de la colonia</label><input type="text" id="s-name" value="${esc(pl.p.name)}" maxlength="28">
       <div class="steps">
         <div class="step"><div class="n">⇩</div><div><b>Exportar código</b>: descarga todos tus archivos .py en un único fichero para guardarlos o compartirlos.<br><button class="btn" id="s-exp" style="margin-top:6px;padding:0 14px">Exportar biblioteca</button></div></div>
-        <div class="step"><div class="n">⇧</div><div><b>Importar código</b>: añade archivos .py o una biblioteca exportada.<br><input type="file" id="s-imp" accept=".py,.json" multiple style="margin-top:6px;color:var(--muted)"></div></div>
+        <div class="step"><div class="n">⇧</div><div><b>Importar código</b>: añade archivos .py o una biblioteca exportada.<br><label class="btn file-btn" style="margin-top:6px;padding:0 14px">Elegir archivos<input type="file" id="s-imp" accept=".py,.json" multiple hidden></label><div class="sm" id="s-imp-n" style="margin-top:4px"></div></div></div>
         <div class="step"><div class="n">◈</div><div><b>Guía visual</b>: robots, edificios, naturaleza, ruinas, recursos y terrenos del juego.<br><button class="btn" id="s-gal" style="margin-top:6px;padding:0 14px">Abrir guía visual</button></div></div>
         <div class="step"><div class="n">↺</div><div><b>Nuevo mundo</b>: genera otro valle y empieza de cero (tu código se conserva).<br><button class="btn danger" id="s-reset" style="margin-top:6px;padding:0 14px">Crear mundo nuevo</button></div></div>
       </div>
@@ -889,6 +897,7 @@ export class App {
           } else if (/^[\w-]+\.py$/.test(f.name)) { this.be.saveFile(this.owner(), f.name, txt, true); n++; }
         }
         this.renderTabs();
+        $('#s-imp-n', root).textContent = Array.from(files).map((f) => f.name).join(', ');
         this.toast(`${n} archivo(s) importado(s)`, 'ok');
       };
       $('#s-reset', root).onclick = () => {

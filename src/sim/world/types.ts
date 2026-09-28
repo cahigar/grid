@@ -120,7 +120,7 @@ export const CROP = {
 };
 
 // ───── unidades ─────
-export type UnitType = 'granjero' | 'minero' | 'constructor' | 'hacker' | 'aspersor';
+export type UnitType = 'granjero' | 'minero' | 'constructor' | 'hacker' | 'aspersor' | 'base';
 
 export interface UnitTypeInfo {
   label: string;
@@ -166,7 +166,20 @@ export const UNIT_TYPES: Record<UnitType, UnitTypeInfo> = {
     actions: ['disparar', 'radar', 'esperar', 'mirar'], color: '#5fb8ff',
     desc: 'Edificio programable. Dispara agua: riega huertos y deja fuera de juego a drones enemigos unos segundos.',
   },
+  base: {
+    label: 'Centro operativo', prefix: 'CEN', air: false, fixed: true, airMove: 0, moveMul: 1, scan: 5, cargo: 0, water: 0,
+    actions: ['fabricar', 'radar', 'escanear', 'esperar'], color: '#2fd4c0',
+    desc: 'Tu base también se programa: con fabricar(tipo) crea granjeros, mineros y constructores nuevos usando recursos del almacén.',
+  },
 };
+/** unidades que puede fabricar la base */
+export const FACTORY_TYPES: UnitType[] = ['granjero', 'minero', 'constructor'];
+export const UNIT_COST: Partial<Record<UnitType, Partial<Record<ResKind, number>>>> = {
+  granjero: { hierro: 4, cobre: 3, silicio: 1 },
+  minero: { hierro: 6, chatarra: 4 },
+  constructor: { hierro: 5, chatarra: 5, cobre: 2 },
+};
+export const FACTORY = { ms: 10000, maxPerType: 4 };
 export const MOBILE_TYPES: UnitType[] = ['granjero', 'minero', 'constructor', 'hacker'];
 
 export type UnitStatus = 'IDLE' | 'RUNNING' | 'DONE' | 'ERROR' | 'HIBERNATING';
@@ -287,6 +300,8 @@ export interface WorldConfig {
   startStorage?: Partial<Record<ResKind, number>>;
   /** unidades con las que empieza cada jugador */
   startUnits?: UnitType[];
+  /** crear la unidad programable del centro operativo (por defecto sí) */
+  baseUnit?: boolean;
   /** sin generación procedural: la crea el nivel del tutorial */
   level?: string;
 }
@@ -313,5 +328,5 @@ export interface WorldState {
 export type Dir = 'N' | 'S' | 'E' | 'O';
 export const DIRS: Record<Dir, [number, number]> = { N: [0, -1], S: [0, 1], E: [1, 0], O: [-1, 0] };
 
-export const SIGNAL = { base: 9, antena: 7 };
+export const SIGNAL = { base: 9, antena: 11 };
 export const HACK = { channelMs: 4000, cooldownMs: 45_000, immuneMs: 40_000, wetMs: 8000, radarRange: 5 };

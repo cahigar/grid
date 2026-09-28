@@ -3,9 +3,10 @@ import QRCode from 'qrcode';
 import { API } from '../sim/api';
 import { BOT_FILES, BOT_NAMES, DEFAULT_PROGRAM } from '../sim/world/content';
 import { Game } from '../sim/world/game';
-import { BUILDINGS, HACK, RESOURCES, SIGNAL, UNIT_TYPES, MOBILE_TYPES, type UnitType } from '../sim/world/types';
+import { BUILDINGS, FACTORY, FACTORY_TYPES, HACK, RESOURCES, SIGNAL, UNIT_COST, UNIT_TYPES, MOBILE_TYPES, type UnitType } from '../sim/world/types';
 import { App } from './app';
 import { api, type JoinInfo } from './net/api';
+import { backgroundTicker } from './net/transport';
 import { DEFAULT_SETTINGS, HostSession, MirrorSession, type LobbySettings, type RosterEntry, type ToStudent } from './net/multiplayer';
 import { drawGallery } from './render/gallery';
 import { Renderer } from './render/renderer';
@@ -57,15 +58,20 @@ function worldBackdrop(canvas: HTMLCanvasElement): Cleanup {
   const b = g.player('b0')!.p.base;
   r.centerOn(b.x + 2, b.y + 4);
   r.cam.zoom = 1.15;
+  const cx0 = r.cam.x;
+  const cy0 = r.cam.y;
   let raf = 0;
   let last = performance.now();
+  const t0real = last;
   let gt = t0;
   const loop = (t: number) => {
     gt += (t - last) * 1.5;
     last = t;
     g.advanceTo(gt, 2000);
-    r.cam.x += 0.06;
-    r.cam.y += 0.02;
+    // paseo lento en bucle alrededor de la base: nunca se sale del valle
+    const k = (t - t0real) / 1000;
+    r.cam.x = cx0 + Math.sin(k / 11) * 160 + Math.sin(k / 4.3) * 18;
+    r.cam.y = cy0 + Math.sin(k / 17) * 70;
     r.draw(gt, t);
     raf = requestAnimationFrame(loop);
   };
@@ -108,7 +114,7 @@ function page(inner: string, opts: { backdrop?: boolean; wide?: boolean } = {}):
 export function mountHome(): Cleanup {
   const el = page(`
     <section class="hero">
-      <h1>No controlas las máquinas.<br><span>Las programas.</span></h1>
+      <h1>Tú escribes el código.<br><span>Las máquinas construyen el futuro.</span></h1>
       <p class="lead">El mundo cayó, pero estamos construyendo algo nuevo. Escribe Python, cárgalo en tus robots y compite con tu clase en partidas de 15 minutos por reconstruir el valle.</p>
     </section>
     <section class="cards">
@@ -117,8 +123,8 @@ export function mountHome(): Cleanup {
         <form id="joinf" class="row"><input id="jcode" maxlength="6" placeholder="ABC123" autocomplete="off" aria-label="Código de sala"><button class="btn go" type="submit">Entrar</button></form>
         <p class="sm">Te lo da tu profesor (o escanea su QR).</p>
       </div>
-      <a class="card panel" href="#/tutorial"><div class="k">${ICON.target} Tutorial</div><h3>8 niveles para aprender</h3><p class="sm">Del primer <code>mover("E")</code> a clases y excepciones. Sin código de sala.</p></a>
-      <a class="card panel" href="#/practica"><div class="k">${ICON.play} Práctica libre</div><h3>Tu colonia, a tu ritmo</h3><p class="sm">Un valle con colonias rivales que sigue funcionando cuando cierras.</p></a>
+      <a class="card panel" href="#/tutorial"><div class="k">${ICON.target} Tutorial</div><h3>${LEVELS.length} niveles para aprender</h3><p class="sm">Del primer <code>mover("E")</code> a clases y excepciones. Sin código de sala.</p></a>
+      <a class="card panel" href="#/practica"><div class="k">${ICON.play} Práctica libre</div><h3>Tu colonia, a tu ritmo</h3><p class="sm">Un valle con colonias rivales. Tus programas siguen trabajando mientras no estás: al volver verás lo que ha pasado.</p></a>
       <a class="card panel" href="#/guia"><div class="k">${ICON.book} Guía del operador</div><h3>Instrucciones completas</h3><p class="sm">Unidades, edificios, huertos, hackeo y todas las primitivas.</p></a>
       <a class="card panel prof" href="#/profe"><div class="k">👩‍🏫 Profesor</div><h3>Crear una sala</h3><p class="sm">Hasta 20 alumnos en el mismo mapa. Tú lo ves todo y puedes programar cualquier unidad.</p></a>
     </section>`, { backdrop: true });
@@ -209,7 +215,7 @@ export async function mountTutorialMenu(): Promise<Cleanup> {
   const prog = await api.progress();
   const done = new Set(prog.filter((p) => p.done).map((p) => p.level));
   const el = page(`
-    <section class="hero small"><h1>Tutorial</h1><p class="lead">Ocho retos cortos. Cada uno presenta una idea de Python a través del juego. ${api.me.role === 'student' ? 'Tu progreso se guarda en tu cuenta.' : 'Entra con tu cuenta de alumno para guardar el progreso.'}</p></section>
+    <section class="hero small"><h1>Tutorial</h1><p class="lead">${LEVELS.length} retos cortos. Cada uno presenta una idea de Python a través del juego. ${api.me.role === 'student' ? 'Tu progreso se guarda en tu cuenta.' : 'Entra con tu cuenta de alumno para guardar el progreso.'}</p></section>
     <section class="levels">
       ${LEVELS.map((l) => `<a class="panel lvl ${done.has(l.n) ? 'done' : ''}" href="#/tutorial/${l.n}">
         <div class="num">${done.has(l.n) ? '✓' : l.n}</div>
@@ -310,7 +316,7 @@ export function mountGuide(): Cleanup {
   const el = page(`
     <article class="guide">
       <h1>Guía del operador</h1>
-      <p class="lead">G.R.I.D. es un juego de estrategia en el que <b>no controlas nada directamente</b>: escribes programas en Python y tus unidades los ejecutan en tiempo real sobre un mapa en cuadrícula compartido con tu clase.</p>
+      <p class="lead">G.R.I.D. es un juego de estrategia en el que <b>programas en lugar de pilotar</b>: escribes programas en Python y tus unidades los ejecutan en tiempo real sobre un mapa en cuadrícula compartido con tu clase.</p>
       <nav class="toc">${['Partida', 'Unidades', 'Huertos', 'Edificios', 'Hackeo', 'Errores', 'Primitivas', 'Python', 'Profesor', 'Arte'].map((s) => `<a href="#g-${s}" data-sec="${s}">${s}</a>`).join('')}</nav>
 
       <h2 id="g-Partida">1 · Cómo es una partida</h2>
@@ -321,10 +327,11 @@ export function mountGuide(): Cleanup {
         <div class="step"><div class="n">4</div><div><b>Final.</b> Gana quien más <b>puntos</b> haya conseguido entregando recursos en su base, almacenes o silos.</div></div>
       </div>
       <div class="pts">${Object.entries(RESOURCES).map(([k, r]) => `<span class="res">${resIcon(k)} ${esc(r.label)} <b>${r.value}</b></span>`).join('')}</div>
+      <p>Las <b>vetas</b> se ven en cuanto descubres su casilla; <code>escanear()</code> descubre un círculo alrededor y te da la lista con sus coordenadas. <code>base()</code> te da la casilla de aparcamiento junto a tu base.</p>
       <p>Cada unidad tiene <b>batería</b>: <code>recargar()</code> junto a la base o a un panel solar. Fuera del alcance de la base (radio ${SIGNAL.base}) o de una antena (radio ${SIGNAL.antena}) no hay señal y cada acción tarda el doble.</p>
 
       <h2 id="g-Unidades">2 · Tus unidades</h2>
-      <div class="ugrid">${[...MOBILE_TYPES, 'aspersor' as UnitType].map(unitCard).join('')}</div>
+      <div class="ugrid">${['base' as UnitType, ...MOBILE_TYPES, 'aspersor' as UnitType].map(unitCard).join('')}</div>
       <p class="sm">Cada unidad ejecuta su propio programa. Tienes un archivo para cada una (<code>minero.py</code>, <code>granjero.py</code>…) y una biblioteca <code>nav.py</code> para tus funciones: <code>from nav import ir_a</code>. Las unidades se comunican con el diccionario <code>compartido</code>.</p>
 
       <h2 id="g-Huertos">3 · Huertos</h2>
@@ -338,12 +345,14 @@ export function mountGuide(): Cleanup {
       <table class="tbl"><thead><tr><th>Tipo</th><th>Coste</th><th>Para qué sirve</th></tr></thead><tbody>
       ${Object.entries(BUILDINGS).map(([k, b]) => `<tr><td><code>"${k}"</code></td><td>${Object.entries(b.cost).map(([r, n]) => `${n} ${r}`).join(' + ')}</td><td>${esc(b.desc)}</td></tr>`).join('')}
       </tbody></table>
+      <p><b>Antenas:</b> cada antena da señal en un radio de ${SIGNAL.antena} casillas (en el mapa verás su círculo). Con señal tus unidades trabajan a velocidad normal; sin señal, cada acción tarda el doble.</p>
+      <p><b>Centro operativo:</b> tu base también se programa (<code>base.py</code>). Con <code>fabricar("minero", "minero.py")</code> crea una unidad nueva junto a la base y le carga un programa. Costes: ${FACTORY_TYPES.map((t) => `${UNIT_TYPES[t].label.toLowerCase()} ${Object.entries(UNIT_COST[t]!).map(([r, n]) => `${n} ${r}`).join(' + ')}`).join(' · ')}. Máximo ${FACTORY.maxPerType} de cada tipo.</p>
       <p>El constructor construye en la casilla vecina: <code>construir("panel", "S")</code>. Los recursos salen del almacén de tu colonia; si faltan, salta <code>SinRecursosError</code>.</p>
 
       <h2 id="g-Hackeo">5 · Hackeo y defensa</h2>
       <p>El dron hacker, en una casilla vecina a una unidad rival, puede cambiar su código con <code>hackear(direccion, modo)</code>:</p>
       <ul><li><code>"invertir"</code>: cambia una dirección: "N" ↔ "S", "E" ↔ "O".</li><li><code>"numero"</code>: suma o resta 1 a un número del código.</li><li><code>"borrar"</code>: quita un carácter (puede romper el programa; el profesor decide si está permitido).</li></ul>
-      <p>Reglas: ${HACK.channelMs / 1000} s junto al objetivo · ${HACK.cooldownMs / 1000} s de enfriamiento · la víctima queda protegida ${HACK.immuneMs / 1000} s · la víctima ve en su log la línea cambiada y puede restaurar la versión anterior. <b>Defensa:</b> un aspersor con <code>disparar(x, y)</code> moja a los drones enemigos (${HACK.wetMs / 1000} s sin actuar y hackeo cancelado). Con <code>integridad()</code> un programa sabe si lo han tocado.</p>
+      <p>Reglas: hay que empezar al lado del objetivo; la conexión dura ${HACK.channelMs / 1000} s y se completa aunque se aleje · ${HACK.cooldownMs / 1000} s de enfriamiento · la víctima queda protegida ${HACK.immuneMs / 1000} s · la víctima ve en su log la línea cambiada y puede restaurar la versión anterior. <b>Defensa:</b> un aspersor con <code>disparar(x, y)</code> moja a los drones enemigos (${HACK.wetMs / 1000} s sin actuar y hackeo cancelado). Con <code>integridad()</code> un programa sabe si lo han tocado.</p>
 
       <h2 id="g-Errores">6 · Errores del juego</h2>
       <p>Algunas primitivas lanzan excepciones. Captúralas con <code>try / except</code> para que tu programa no se pare:</p>
@@ -426,6 +435,8 @@ export async function mountHost(code: string): Promise<Cleanup> {
   activeHost?.close();
   const host = new HostSession(api.transport(code, 'host', `profe${api.me.id}`), code, info.title);
   activeHost = host;
+  // la partida sigue aunque el profesor cambie de pestaña (p. ej. para abrir la vista de un alumno)
+  const stopTicker = backgroundTicker(() => { if (document.hidden) host.tick(performance.now()); }, 200);
   let app: App | null = null;
   let raf = 0;
   let savedResults = false;
@@ -547,6 +558,7 @@ export async function mountHost(code: string): Promise<Cleanup> {
   if (host.state === 'game') showGame(); else showLobby();
   return () => {
     cancelAnimationFrame(raf);
+    stopTicker();
     cleanupLobby();
     app?.destroy();
     host.close();

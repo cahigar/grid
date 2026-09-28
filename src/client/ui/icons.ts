@@ -12,6 +12,7 @@ export const ICON = {
   constructor: svg('<rect x="3" y="15" width="10" height="5" rx="1.5"/><path d="M8 15v-4l6-5 5 3M19 9v4"/><path d="M17 13h4"/>'),
   hacker: svg('<ellipse cx="12" cy="13" rx="8" ry="4"/><path d="M14 9l2-5 3-1"/><path d="M9 13h3"/><circle cx="19" cy="3" r="1" fill="currentColor"/>'),
   aspersor: svg('<rect x="7" y="15" width="10" height="6" rx="1.5"/><path d="M12 15V8M7 5h10"/><path d="M5 3c-1 2 0 3 0 3M19 3c1 2 0 3 0 3M12 2v2"/>'),
+  base: svg('<path d="M3 20h18M5 20V9l7-5 7 5v11"/><rect x="9" y="13" width="6" height="7"/><path d="M12 4V1"/>'),
   dron: svg('<circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M7 8l3 2M17 8l-3 2M7 16l3-2M17 16l-3-2"/><rect x="9" y="9" width="6" height="6" rx="1.5"/>'),
   explorador: svg('<ellipse cx="12" cy="12" rx="8" ry="4"/><circle cx="12" cy="12" r="2"/><path d="M12 8V3"/>'),
   minero: svg('<rect x="3" y="12" width="13" height="6" rx="2"/><path d="M6 12V9h6v3M16 14l5-2v4z"/>'),

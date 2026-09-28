@@ -65,8 +65,9 @@ test('anfitrión y espejos: lobby, inicio, niebla, programas y puntos', async ()
     const hg = host.game;
     const mg = s.mirror!.game;
     assert.deepEqual([...mg.terrain], [...hg.terrain], 'mismo terreno');
-    assert.equal(mg.unitsOf(s.cid).length, 4);
-    assert.equal(mg.resources.size, 0, 'no conoce vetas aún');
+    assert.equal(mg.unitsOf(s.cid).length, 5);
+    const mk = hg.player(s.cid)!.known;
+    for (const r of mg.resources.values()) assert.equal(mk[r.y * hg.cfg.w + r.x], 1, 'sólo vetas en casillas descubiertas');
     const known = [...mg.player(s.cid)!.known].reduce((a, b) => a + b, 0);
     assert.ok(known > 30);
   }

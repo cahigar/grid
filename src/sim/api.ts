@@ -4,7 +4,7 @@ import type { UnitType } from './world/types';
 export interface ApiDoc {
   name: string;
   sig: string;
-  cat: 'Movimiento' | 'Sensores' | 'Granjero' | 'Minero' | 'Constructor' | 'Hacker' | 'Aspersor' | 'Base' | 'Memoria' | 'Depuración' | 'Errores';
+  cat: 'Movimiento' | 'Sensores' | 'Granjero' | 'Minero' | 'Constructor' | 'Hacker' | 'Aspersor' | 'Base' | 'Centro operativo' | 'Memoria' | 'Depuración' | 'Errores';
   desc: string;
   returns: string;
   time: string;
@@ -66,7 +66,7 @@ export const API: ApiDoc[] = [
   { name: 'integridad', sig: 'integridad()', cat: 'Sensores', desc: 'False si un hacker ha modificado el programa que estás ejecutando.', returns: 'True / False', time: '0', energy: '0', example: 'if not integridad():\n    print("¡me han hackeado!")' },
 
   // base
-  { name: 'base', sig: 'base()', cat: 'Base', desc: 'Coordenadas del muelle de tu base (junto al centro operativo).', returns: 'tupla (x, y)', time: '0', energy: '0' },
+  { name: 'base', sig: 'base()', cat: 'Base', desc: 'Casilla de aparcamiento de tu base: una casilla libre y transitable pegada al centro operativo (ahí se descarga, se recarga y se carga agua).', returns: 'tupla (x, y)', time: '0', energy: '0' },
   { name: 'almacen', sig: 'almacen()', cat: 'Base', desc: 'Recursos guardados en tu colonia.', returns: 'dict', time: '0', energy: '0' },
   {
     name: 'descargar', sig: 'descargar()', cat: 'Base', who: MOV,
@@ -112,9 +112,20 @@ export const API: ApiDoc[] = [
   // hacker
   {
     name: 'hackear', sig: 'hackear(direccion, modo="invertir")', cat: 'Hacker', who: ['hacker'],
-    desc: 'Modifica el programa de la unidad enemiga que está en la casilla vecina. Modos: "invertir" cambia una dirección ("N"↔"S", "E"↔"O"), "numero" suma o resta 1 a un número, "borrar" quita un carácter (puede romper el código). La víctima se reinicia con el código cambiado. Hay que estar 4 s al lado; luego 45 s de enfriamiento. La víctima queda protegida 40 s.',
+    desc: 'Modifica el programa de la unidad enemiga que está en la casilla vecina. Modos: "invertir" cambia una dirección ("N"↔"S", "E"↔"O"), "numero" suma o resta 1 a un número, "borrar" quita un carácter (puede romper el código). La víctima se reinicia con el código cambiado. Hay que empezar al lado; la conexión dura 4 s y se completa aunque el enemigo se aleje. Luego 45 s de enfriamiento. La víctima queda protegida 40 s.',
     returns: 'texto con el cambio, o False si falló', time: '4 s', energy: '3', raises: 'FueraDeRangoError si no hay enemigo al lado · AccionInvalidaError (enfriamiento, protegida o desactivado)',
   },
+
+  // centro operativo
+  {
+    name: 'fabricar', sig: 'fabricar(tipo, programa=None)', cat: 'Centro operativo', who: ['base'],
+    desc: 'La base fabrica una unidad nueva ("granjero", "minero" o "constructor") en una casilla libre junto a ella, pagando con el almacén. Si das un programa (p. ej. "minero.py"), la unidad empieza a ejecutarlo. Máximo 4 de cada tipo.',
+    returns: 'nombre de la unidad nueva', time: '10 s', energy: '0',
+    raises: 'SinRecursosError si faltan recursos · AccionInvalidaError (máximo alcanzado o sin sitio) · ValueError (tipo o archivo desconocido)',
+    example: 'try:\n    print(fabricar("minero", "minero.py"))\nexcept SinRecursosError as e:\n    print("todavía no:", e)',
+  },
+  { name: 'coste_unidad', sig: 'coste_unidad(tipo)', cat: 'Centro operativo', desc: 'Lo que cuesta fabricar una unidad: granjero 4 hierro + 3 cobre + 1 silicio · minero 6 hierro + 4 chatarra · constructor 5 hierro + 5 chatarra + 2 cobre.', returns: 'dict', time: '0', energy: '0' },
+  { name: 'unidades', sig: 'unidades()', cat: 'Centro operativo', desc: 'Lista de todas tus unidades (u.nombre, u.tipo, u.x, u.y).', returns: 'lista de Unidad', time: '0', energy: '0' },
 
   // aspersor
   {

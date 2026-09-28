@@ -1044,10 +1044,21 @@ export interface UnitPaintState {
 }
 
 export function paintUnit(ctx: C, type: UnitType, color: string, time: number, st: UnitPaintState): void {
+  if (type === 'base') return paintFactory(ctx, time, st.working);
   if (type === 'granjero' || type === 'hacker') return paintDrone(ctx, type, color, time, st);
   if (type === 'minero') return paintMiner(ctx, color, time, st);
   if (type === 'aspersor') return paintSprinkler(ctx, color, time, st.working ? 1 : 0);
   return paintConstructor(ctx, color, time, st);
+}
+
+/** El centro operativo lo dibuja el terreno; aquí sólo el halo de fabricación */
+function paintFactory(ctx: C, time: number, working: boolean): void {
+  if (!working) return;
+  const k = (time % 1200) / 1200;
+  ctx.strokeStyle = rgba(PAL.teal, 0.7 * (1 - k));
+  ctx.lineWidth = 2;
+  diamond(ctx, 0, 0, HW * (0.9 + k * 0.9), HH * (0.9 + k * 0.9));
+  ctx.stroke();
 }
 
 /** Aspersor: base técnica con depósito y cabezal giratorio */

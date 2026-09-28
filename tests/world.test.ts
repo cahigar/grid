@@ -24,7 +24,7 @@ test('partida de 20: mapa, bases, 4 unidades, parcelas y almacén inicial', () =
   for (let i = 0; i < 20; i++) g.addPlayer(`p${i}`, `Alumno ${i}`, false, { ...STARTER_FILES });
   assert.equal(g.players.size, 20);
   const us = g.unitsOf('p7');
-  assert.deepEqual(us.map((u) => u.type).sort(), ['constructor', 'granjero', 'hacker', 'minero']);
+  assert.deepEqual(us.map((u) => u.type).sort(), ['base', 'constructor', 'granjero', 'hacker', 'minero']);
   const pl = g.player('p7')!;
   assert.equal(pl.p.storage.hierro, 6);
   const b = pl.p.base;
@@ -237,4 +237,58 @@ test('guardar y cargar a mitad de partida da el mismo resultado', () => {
   }
   assert.deepEqual(g2.player('b0')!.p.storage, g.player('b0')!.p.storage);
   assert.deepEqual(g2.player('b1')!.p.totals, g.player('b1')!.p.totals);
+});
+
+test('hackeo: una vez empezado se completa aunque el objetivo se aleje', () => {
+  const { game: g } = buildLevel({ map: ['B.....E.', '........', '..Hm....', '........'] }, T0);
+  const victim = g.unitsOf('p2')[0];
+  const vsrc = 'mover("E")\nmover("E")\nesperar(60)\nmover("N")\n';
+  g.runProgram(victim.id, 'minero.py', { 'minero.py': vsrc });
+  g.player('p2')!.p.files['minero.py'] = vsrc;
+  const h = run(g, 'HCK-01', 'print(hackear("E", "invertir"))');
+  g.advanceTo(T0 + 6000);
+  assert.ok(victim.x > 3, 'el objetivo se ha movido');
+  assert.ok(victim.hacked, logs(h));
+  assert.match(logs(h), /Hackeo con éxito/);
+});
+
+test('base(): aparcamiento libre junto a la base aunque el mapa acabe debajo', () => {
+  const { game: g } = buildLevel({ map: ['......', '..B...', '......'] }, T0);
+  const d = g.player('p1')!.p.dock;
+  const b = g.player('p1')!.p.base;
+  assert.equal(g.distRect(d.x, d.y, b.x, b.y, 2, 2), 1);
+  assert.ok(d.y < 3 && d.x >= 0);
+  assert.notEqual(g.terrainAt(d.x, d.y), T.BASE);
+});
+
+test('la base fabrica unidades con recursos y les carga un programa', () => {
+  const { game: g } = buildLevel({ map: ['.......', '.B.....', '.......', '.......', '.......'], baseUnit: true, storage: { hierro: 12, chatarra: 4 } }, T0);
+  const cen = g.unitsOf('p1').find((u) => u.type === 'base')!;
+  const files = { 'main.py': 'print(fabricar("minero", "m.py"))\ntry:\n    fabricar("minero")\nexcept SinRecursosError as e:\n    print("falta:", e)\n', 'm.py': 'print("hola desde", nombre())\n' };
+  g.player('p1')!.p.files = { ...files };
+  const r = g.runProgram(cen.id, 'main.py', files);
+  assert.ok(r.ok);
+  g.advanceTo(T0 + 30_000);
+  const mins = g.unitsOf('p1').filter((u) => u.type === 'minero');
+  assert.equal(mins.length, 1, logs(cen));
+  assert.match(logs(cen), /MIN-01/);
+  assert.match(logs(cen), /falta: faltan 4 chatarra/);
+  assert.match(logs(mins[0]), /hola desde MIN-01/);
+  assert.equal(g.player('p1')!.p.storage.hierro, 6);
+  const m = mins[0];
+  assert.equal(g.distRect(m.x, m.y, 1, 1, 2, 2) >= 1, true);
+});
+
+test('las vetas de casillas descubiertas se ven sin escanear', () => {
+  const cfg = { w: 60, h: 60, seed: 99, tzOffsetMin: 0, name: 'x', timeScale: 0.35 };
+  const g = Game.create(cfg, T0, 4);
+  g.addPlayer('p1', 'A', false, { ...STARTER_FILES });
+  const pl = g.player('p1')!;
+  for (const id of pl.knownRes) {
+    const r = g.resources.get(id)!;
+    assert.equal(pl.known[r.y * 60 + r.x], 1);
+  }
+  const visible = [...g.resources.values()].filter((r) => pl.known[r.y * 60 + r.x]);
+  assert.equal(visible.length, pl.knownRes.size);
+  assert.ok(g.resources.size > 60, `vetas: ${g.resources.size}`);
 });

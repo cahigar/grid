@@ -152,6 +152,7 @@ export class PracticeSession extends GameSession {
     if (saved) {
       try {
         this.game = Game.fromState(saved.state);
+        this.migrate();
         this.gameTime = saved.gameTime ?? saved.state.time;
         this.catchUp(Math.max(0, Date.now() - saved.savedReal));
       } catch (e) {
@@ -160,6 +161,17 @@ export class PracticeSession extends GameSession {
       }
     } else this.newWorld();
     this.lastReal = performance.now();
+  }
+
+  /** partidas guardadas con versiones anteriores: archivos y programas nuevos */
+  private migrate(): void {
+    for (const pl of this.game.players.values()) {
+      const src = pl.p.bot ? BOT_FILES : STARTER_FILES;
+      for (const [k, v] of Object.entries(src)) if (!(k in pl.p.files)) pl.p.files[k] = v;
+      if (pl.p.bot) {
+        for (const u of this.game.unitsOf(pl.p.id)) if (u.type === 'base' && !u.program) this.game.runProgram(u.id, 'base.py', pl.p.files);
+      }
+    }
   }
 
   private readSave(): { savedReal: number; gameTime: number; state: WorldState } | null {

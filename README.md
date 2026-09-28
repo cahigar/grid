@@ -1,6 +1,6 @@
 # G.R.I.D. — Gamified Robotics & Instructional Development
 
-Juego de estrategia en vista isométrica donde **no controlas las máquinas: las programas**.
+Juego de estrategia en vista isométrica donde **tú escribes el código y las máquinas construyen el futuro**.
 Escribes Python, lo cargas en tus robots y compites con tu clase en partidas de 15 minutos.
 
 Producción: **https://grid.carloshidalgo.eu**
@@ -11,7 +11,7 @@ Producción: **https://grid.carloshidalgo.eu**
 |---|---|
 | `#/` | Inicio (entrar con código de sala, tutorial, práctica, guía, profesor) |
 | `#/entrar` | Cuentas: alumno (usuario + PIN de 4 cifras) y profesor (email + contraseña) |
-| `#/tutorial`, `#/tutorial/N` | 8 niveles: strings → bucles → condicionales → funciones → listas/diccionarios → excepciones → clases → hackeo |
+| `#/tutorial`, `#/tutorial/N` | 10 niveles: strings → bucles → condicionales → funciones → biblioteca propia (módulos) → listas → excepciones → diccionarios (fábrica) → clases → hackeo |
 | `#/practica` | Colonia propia persistente en el navegador con colonias bot |
 | `#/guia` | Guía del operador (unidades, edificios, huertos, hackeo, primitivas, Python) |
 | `#/profe`, `#/profe/CODIGO` | Salas del profesor: lobby con QR, ajustes, partida en **modo dios** |
@@ -39,7 +39,7 @@ Más detalle en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md), [docs/DISENO.md](d
 ```bash
 npm install
 npm run dev     # http://localhost:5173 (incluye /api con pg-mem)
-npm test        # intérprete, mecánicas, multijugador y soluciones de los 8 niveles
+npm test        # intérprete, mecánicas, multijugador y soluciones de los 10 niveles
 npm run build   # tsc + vite build → dist/
 npm run docs    # regenera docs/API.md
 ```

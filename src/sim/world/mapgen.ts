@@ -197,8 +197,8 @@ export function generate(cfg: WorldConfig, nSlots: number): GenResult {
   };
   // hierro junto a las rocas
   for (const c of rockCenters) {
-    const n = rng.int(2, 4);
-    for (let k = 0, tries = 0; k < n && tries < 30; tries++) {
+    const n = rng.int(4, 7);
+    for (let k = 0, tries = 0; k < n && tries < 50; tries++) {
       const x = c.x + rng.int(-4, 4);
       const y = c.y + rng.int(-4, 4);
       const nearRock = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]].some(([dx, dy]) => get(x + dx, y + dy) === T.ROCA);
@@ -206,7 +206,7 @@ export function generate(cfg: WorldConfig, nSlots: number): GenResult {
     }
   }
   // chatarra y silicio en la ciudad
-  for (let i = 0; i < (w * h) / 110; i++) {
+  for (let i = 0; i < (w * h) / 60; i++) {
     const x = rng.int(city.x0, city.x1);
     const y = rng.int(city.y0, city.y1);
     const nearRuin = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => get(x + dx, y + dy) === T.RUINA);
@@ -214,10 +214,16 @@ export function generate(cfg: WorldConfig, nSlots: number): GenResult {
     else addRes(x, y, 'chatarra', rng.int(10, 30));
   }
   // cobre en claros
-  for (let i = 0; i < (w * h) / 200; i++) {
+  for (let i = 0; i < (w * h) / 90; i++) {
     const x = rng.int(1, w - 2);
     const y = rng.int(1, h - 2);
-    if (get(x, y) === T.HIERBA && fbm(x / 7, y / 7, seed + 55) > 0.5) addRes(x, y, 'cobre', rng.int(10, 25));
+    if (get(x, y) === T.HIERBA && fbm(x / 7, y / 7, seed + 55) > 0.45) addRes(x, y, 'cobre', rng.int(10, 25));
+  }
+  // hierro y chatarra dispersos por las praderas
+  for (let i = 0; i < (w * h) / 140; i++) {
+    const x = rng.int(1, w - 2);
+    const y = rng.int(1, h - 2);
+    if (get(x, y) === T.HIERBA || get(x, y) === T.MALEZA) addRes(x, y, rng.chance(0.6) ? 'hierro' : 'chatarra', rng.int(10, 25));
   }
   // huertos salvajes (tierra fértil sin dueño) en claros junto al agua o al bosque
   for (let i = 0; i < (w * h) / 260; i++) {
@@ -232,13 +238,13 @@ export function generate(cfg: WorldConfig, nSlots: number): GenResult {
       if (get(x, y) === T.HIERBA || get(x, y) === T.MALEZA) set(x, y, T.CULTIVO);
     }
   }
-  // cada base tiene al menos un par de vetas cercanas (pero fuera de la vista inicial)
+  // cada base tiene vetas cercanas (algunas ya a la vista, otras un poco más lejos)
   for (const s of slots) {
-    const kinds: ResKind[] = ['hierro', 'hierro', 'cobre', 'chatarra'];
+    const kinds: ResKind[] = ['hierro', 'hierro', 'hierro', 'cobre', 'cobre', 'chatarra', 'chatarra', 'silicio'];
     for (const kind of kinds) {
       for (let tries = 0; tries < 40; tries++) {
         const ang = rng.next() * Math.PI * 2;
-        const dist = rng.int(7, 12);
+        const dist = rng.int(4, 11);
         const x = Math.round(s.x + Math.cos(ang) * dist);
         const y = Math.round(s.y + Math.sin(ang) * dist);
         if (addRes(x, y, kind, rng.int(18, 30))) break;

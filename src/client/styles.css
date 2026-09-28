@@ -403,9 +403,9 @@ a.card:hover { transform: translateY(-2px); border-color: rgba(47, 212, 192, 0.4
 .toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 8px; position: sticky; top: 62px; z-index: 3; padding: 8px 0; background: var(--bg); }
 .toc a { font-size: 13px; padding: 5px 11px; border-radius: 8px; border: 1px solid var(--line); text-decoration: none; color: var(--muted) !important; }
 .toc a:hover { color: var(--teal) !important; border-color: rgba(47, 212, 192, 0.45); }
-.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-.step { display: flex; gap: 12px; padding: 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--line); font-size: 14px; }
-.step .n { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--teal); color: #03201c; font-weight: 700; }
+.guide .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.guide .step { display: flex; gap: 12px; padding: 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--line); font-size: 14px; }
+.guide .step .n { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--teal); color: #03201c; font-weight: 700; }
 .pts { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
 .ugrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
 .ucard2 { display: grid; grid-template-columns: 52px 1fr; gap: 14px; padding: 16px; }
@@ -472,3 +472,6 @@ a.card:hover { transform: translateY(-2px); border-color: rgba(47, 212, 192, 0.4
 #hostctl { display: flex; align-items: center; gap: 6px; }
 #hostctl:empty { display: none; }
 #hostctl .tb-btn { padding: 0 10px; min-width: 36px; justify-content: center; }
+.step > div { min-width: 0; overflow-wrap: anywhere; }
+.file-btn { display: inline-flex; align-items: center; cursor: pointer; }
+.modal label.file-btn { display: inline-flex; width: auto; height: 34px; margin-bottom: 0; color: var(--text); font-size: 13px; font-weight: 600; }

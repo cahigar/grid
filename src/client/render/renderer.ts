@@ -335,7 +335,7 @@ export class Renderer {
     };
     for (const p of g.players.values()) {
       const d = p.p.dock;
-      if (!known[d.y * w + d.x]) continue;
+      if (!known[d.y * w + d.x] || g.terrainAt(p.p.base.x, p.p.base.y) !== T.BASE) continue;
       const [sx, sy] = toS(d.x, d.y);
       ctx.save();
       ctx.translate(sx, sy);
@@ -374,26 +374,39 @@ export class Renderer {
     const myUnits = this.god ? [...g.units.values()].map((r) => r.u).filter((u) => u.id === this.selectedUnit) : g.unitsOf(this.me);
     // alcance de señal (base + antenas) de la colonia de la unidad seleccionada
     const selU = this.selectedUnit ? g.units.get(this.selectedUnit)?.u : null;
-    if (g.cfg.match && (this.showSignal || (selU && !g.inSignal(selU)))) {
-      const owner = selU?.owner ?? this.me;
-      const op = g.player(owner);
-      if (op) {
-        const rings: [number, number, number][] = [[op.p.base.x + 0.5, op.p.base.y + 0.5, SIGNAL.base], ...g.ownBuildings(owner, 'antena').map((a) => [a.x, a.y, SIGNAL.antena] as [number, number, number])];
-        ctx.save();
-        ctx.setLineDash([6, 6]);
-        ctx.lineDashOffset = -realNow / 60;
-        for (const [cx, cy, r] of rings) {
+    if (!g.cfg.level || g.cfg.match) {
+      const strong = this.showSignal || (!!selU && !g.inSignal(selU));
+      const owners = this.god ? (selU ? [selU.owner] : [...g.players.keys()]) : [this.me];
+      ctx.save();
+      for (const owner of owners) {
+        const op = g.player(owner);
+        if (!op) continue;
+        const rings: [number, number, number, boolean][] = [
+          [op.p.base.x + 0.5, op.p.base.y + 0.5, SIGNAL.base, false],
+          ...g.ownBuildings(owner, 'antena').map((a) => [a.x, a.y, SIGNAL.antena, true] as [number, number, number, boolean]),
+        ];
+        for (const [cx, cy, r, ant] of rings) {
+          if (!strong && !ant) continue;
           const [sx, sy] = toS(cx, cy);
-          ctx.strokeStyle = rgba(op.p.color, 0.5);
-          ctx.lineWidth = 1.5;
+          ctx.setLineDash(ant ? [8, 5] : [6, 6]);
+          ctx.lineDashOffset = -realNow / 60;
+          ctx.strokeStyle = rgba(ant ? PAL.teal : op.p.color, strong ? 0.6 : 0.32);
+          ctx.lineWidth = ant ? 2 : 1.5;
           ctx.beginPath();
           ctx.ellipse(sx, sy, r * HW * z * 1.414, r * HH * z * 1.414, 0, 0, Math.PI * 2);
           ctx.stroke();
-          ctx.fillStyle = rgba(op.p.color, 0.04);
+          ctx.fillStyle = rgba(ant ? PAL.teal : op.p.color, strong ? 0.06 : 0.035);
           ctx.fill();
+          if (ant && z > 0.5) {
+            ctx.setLineDash([]);
+            ctx.font = `600 ${Math.round(10 + z * 2)}px "Space Grotesk", system-ui, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.fillStyle = rgba(PAL.teal, 0.75);
+            ctx.fillText(`📡 señal · radio ${r}`, sx, sy - r * HH * z * 1.414 - 6);
+          }
         }
-        ctx.restore();
       }
+      ctx.restore();
     }
     // rastro y rutas
     for (const u of myUnits) {
@@ -539,6 +552,7 @@ export class Renderer {
     for (const p of g.players.values()) {
       const b = p.p.base;
       if (!known[b.y * w + b.x] && !known[(b.y + 1) * w + b.x + 1]) continue;
+      if (g.terrainAt(b.x, b.y) !== T.BASE) continue; // niveles del tutorial sin base
       items.push({
         d: b.x + b.y + 2 + 0.2,
         fn: () => {
@@ -570,7 +584,8 @@ export class Renderer {
       const u = rt.u;
       const mine = u.owner === this.me || this.god;
       if (!mine && !known[u.y * w + u.x]) continue;
-      const [ux, uy] = Game.lerpPos(u, now);
+      let [ux, uy] = Game.lerpPos(u, now);
+      if (u.type === 'base') { ux += 0.5; uy += 0.5; }
       const color = g.player(u.owner)?.p.color ?? PAL.teal;
       items.push({
         d: ux + uy + 0.5,
@@ -585,10 +600,10 @@ export class Renderer {
             const [p1, p2] = u.trail.slice(-2);
             facing = p2[0] > p1[0] ? 0 : p2[1] > p1[1] ? 1 : p2[0] < p1[0] ? 2 : 3;
           }
-          const working = !!a && ['picar', 'escanear', 'regar', 'plantar', 'recolectar', 'hackear', 'disparar', 'construir'].includes(a.name) && a.ok && now < a.end;
+          const working = !!a && ['picar', 'escanear', 'regar', 'plantar', 'recolectar', 'hackear', 'disparar', 'construir', 'fabricar'].includes(a.name) && a.ok && now < a.end;
           ctx.save();
           ctx.translate(sx, sy);
-          const sc = u.type === 'aspersor' ? 1 : 1.3;
+          const sc = u.type === 'aspersor' || u.type === 'base' ? 1 : 1.3;
           ctx.scale(z * sc, z * sc);
           if (!mine) ctx.globalAlpha = 0.85;
           if (u.wetUntil > now) ctx.filter = 'saturate(0.4) brightness(1.15)';
@@ -618,7 +633,7 @@ export class Renderer {
       else if (u.blocked && u.blocked.attempts >= 5) { icon = '!'; col = '#ff6b5a'; }
       else if (u.status === 'HIBERNATING') { icon = 'ϟ'; col = PAL.amber; }
       else if (u.status === 'DONE') { icon = '✓'; col = '#8fd14f'; }
-      else if (u.status === 'IDLE') { icon = '‖'; col = '#9fb3b0'; }
+      else if (u.status === 'IDLE' && u.type !== 'base') { icon = '‖'; col = '#9fb3b0'; }
       if (u.wetUntil > now) { icon = '≈'; col = '#9fe3f0'; }
       if (u.hacked && now - u.hacked.t < 20_000) { icon = '⚠'; col = '#ff5d73'; }
       const top = sy - 60 * z;

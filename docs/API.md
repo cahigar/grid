@@ -143,7 +143,7 @@ if not integridad():
 
 ### `base()`
 
-Coordenadas del muelle de tu base (junto al centro operativo).
+Casilla de aparcamiento de tu base: una casilla libre y transitable pegada al centro operativo (ahí se descarga, se recarga y se carga agua).
 
 ### `almacen()`
 
@@ -269,7 +269,34 @@ Tus edificios: .tipo, .x, .y
 
 ### `hackear(direccion, modo="invertir")`
 
-Modifica el programa de la unidad enemiga que está en la casilla vecina. Modos: "invertir" cambia una dirección ("N"↔"S", "E"↔"O"), "numero" suma o resta 1 a un número, "borrar" quita un carácter (puede romper el código). La víctima se reinicia con el código cambiado. Hay que estar 4 s al lado; luego 45 s de enfriamiento. La víctima queda protegida 40 s.
+Modifica el programa de la unidad enemiga que está en la casilla vecina. Modos: "invertir" cambia una dirección ("N"↔"S", "E"↔"O"), "numero" suma o resta 1 a un número, "borrar" quita un carácter (puede romper el código). La víctima se reinicia con el código cambiado. Hay que empezar al lado; la conexión dura 4 s y se completa aunque el enemigo se aleje. Luego 45 s de enfriamiento. La víctima queda protegida 40 s.
+
+## Centro operativo
+
+| Primitiva | Devuelve | Tiempo | Energía |
+|---|---|---|---|
+| `fabricar(tipo, programa=None)` | nombre de la unidad nueva | 10 s | 0 |
+| `coste_unidad(tipo)` | dict | 0 | 0 |
+| `unidades()` | lista de Unidad | 0 | 0 |
+
+### `fabricar(tipo, programa=None)`
+
+La base fabrica una unidad nueva ("granjero", "minero" o "constructor") en una casilla libre junto a ella, pagando con el almacén. Si das un programa (p. ej. "minero.py"), la unidad empieza a ejecutarlo. Máximo 4 de cada tipo.
+
+```python
+try:
+    print(fabricar("minero", "minero.py"))
+except SinRecursosError as e:
+    print("todavía no:", e)
+```
+
+### `coste_unidad(tipo)`
+
+Lo que cuesta fabricar una unidad: granjero 4 hierro + 3 cobre + 1 silicio · minero 6 hierro + 4 chatarra · constructor 5 hierro + 5 chatarra + 2 cobre.
+
+### `unidades()`
+
+Lista de todas tus unidades (u.nombre, u.tipo, u.x, u.y).
 
 ## Aspersor
 

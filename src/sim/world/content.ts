@@ -39,7 +39,8 @@ construir("camino", "S")
   'hacker.py': `# ═══ DRON HACKER ═══  vuela; junto a una unidad enemiga puede tocar su código
 # radar() → unidades cercanas (u.nombre, u.tipo, u.x, u.y, u.enemiga)
 # hackear(direccion, modo)  modos: "invertir" ("N"↔"S", "E"↔"O"), "numero" (±1), "borrar"
-# Reglas: 4 s junto al objetivo, 45 s de enfriamiento, la víctima queda protegida 40 s.
+# Reglas: empieza al lado del objetivo; en 4 s el hackeo se completa aunque se aleje.
+# Luego 45 s de enfriamiento; la víctima queda protegida 40 s.
 # Un aspersor enemigo puede mojarte y cancelar el hackeo.
 
 for u in radar():
@@ -55,6 +56,21 @@ while True:
             disparar(u.x, u.y)
     esperar(1)
 `,
+  'base.py': `# ═══ CENTRO OPERATIVO ═══  tu base también se programa
+# fabricar(tipo, programa) → crea una unidad junto a la base (tarda 10 s)
+#   tipos: "granjero", "minero", "constructor"   (máximo 4 de cada)
+#   programa (opcional): archivo que empieza a ejecutar, p. ej. "minero.py"
+# coste_unidad(tipo) → dict con lo que cuesta   almacen() → lo que tienes
+# unidades() → lista de tus unidades
+
+print("Almacén:", almacen())
+print("Un minero cuesta", coste_unidad("minero"))
+try:
+    nombre = fabricar("minero", "minero.py")
+    print("Nueva unidad:", nombre)
+except SinRecursosError as e:
+    print("Todavía no:", e)
+`,
   'nav.py': `# ═══ Tu biblioteca ═══
 # Las funciones de este archivo se pueden usar desde cualquier programa:
 #     from nav import ir_a
@@ -64,7 +80,7 @@ while True:
 
 /** Qué archivo se asigna por defecto a cada tipo de unidad */
 export const DEFAULT_PROGRAM: Record<string, string> = {
-  minero: 'minero.py', granjero: 'granjero.py', constructor: 'constructor.py', hacker: 'hacker.py', aspersor: 'aspersor.py',
+  minero: 'minero.py', granjero: 'granjero.py', constructor: 'constructor.py', hacker: 'hacker.py', aspersor: 'aspersor.py', base: 'base.py',
 };
 
 const RUTAS = `
@@ -148,25 +164,30 @@ while True:
         descargar()
 `,
   'granjero.py': `from rutas import ir_a, volver
+
+def cuidar(p):
+    ir_a(p.x, p.y)
+    if agua() == 0:
+        volver()
+        cargar_agua()
+        ir_a(p.x, p.y)
+    aqui = parcela_aqui()
+    if not aqui.plantada:
+        plantar()
+    elif aqui.lista and carga() < carga_max():
+        recolectar()
+    regar()
+
 while True:
     hice_algo = False
     for p in parcelas():
         if not p.propia:
             continue
         if not p.plantada or p.humedad < 45 or p.lista:
-            ir_a(p.x, p.y)
-            if not p.plantada:
-                plantar()
-            if agua() == 0:
-                volver()
-                cargar_agua()
-                ir_a(p.x, p.y)
-            if p.lista and carga() < carga_max():
-                try:
-                    recolectar()
-                except CultivoNoMaduroError:
-                    pass
-            regar()
+            try:
+                cuidar(p)
+            except (AccionInvalidaError, CultivoNoMaduroError) as e:
+                pass
             hice_algo = True
     if carga() >= 4 or (carga() > 0 and not hice_algo):
         volver()
@@ -212,6 +233,15 @@ while True:
         mover("E" if e.x > x else "O" if e.x < x else "S" if e.y > y else "N")
 `,
   'aspersor.py': STARTER_FILES['aspersor.py'],
+  'base.py': `esperar(30)
+while True:
+    for tipo in ["minero", "granjero", "minero"]:
+        try:
+            fabricar(tipo, tipo + ".py")
+        except Exception as e:
+            pass
+    esperar(40)
+`,
 };
 
 export const BOT_NAMES = ['Colonia Aurora', 'Taller 9', 'Nido Verde', 'Brote Norte', 'Estación Kappa'];

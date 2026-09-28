@@ -258,7 +258,9 @@ export class HostSession extends GameSession {
     super.tick(realNow);
     this.sendLobby();
     if (this.state !== 'game') return;
-    if (realNow - this.lastPatch < 330) return;
+    // Ably admite ~50 mensajes/s por conexión: con muchos alumnos, parches algo menos frecuentes
+    const every = Math.max(330, Math.ceil((this.clients.size * 1000) / 35));
+    if (realNow - this.lastPatch < every) return;
     this.lastPatch = realNow;
     for (const c of this.clients.values()) {
       if (!this.game.player(c.cid)) continue;

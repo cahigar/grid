@@ -6,7 +6,7 @@ import { VM, type ActionReq, type Host } from '../lang/vm';
 import { HACK_MODES, mutate, type HackMode } from './hack';
 import { buildBase, generate } from './mapgen';
 import {
-  BRIDGE_COST, BUILDINGS, CROP, DIRS, HACK, MOBILE_TYPES, RES_KINDS, RESOURCES, SIGNAL, T, TERRAIN, UNIT_TYPES,
+  BRIDGE_COST, BUILDINGS, CROP, DIRS, FACTORY, FACTORY_TYPES, HACK, MOBILE_TYPES, UNIT_COST, RES_KINDS, RESOURCES, SIGNAL, T, TERRAIN, UNIT_TYPES,
   type BuildKind, type Building, type DayStats, type Dir, type LogEntry, type Parcel, type Player, type Prop,
   type ResKind, type ResourceNode, type Unit, type UnitType, type WorldConfig, type WorldState,
 } from './types';
@@ -23,7 +23,7 @@ export const PLAYER_COLORS = [
 export interface GameEvent {
   t: number;
   kind: 'extract' | 'deliver' | 'scan' | 'bump' | 'error' | 'build' | 'deplete' | 'done' | 'plant' | 'harvest'
-    | 'water' | 'splash' | 'hack' | 'hacked' | 'wet' | 'pickup';
+    | 'water' | 'splash' | 'hack' | 'hacked' | 'wet' | 'pickup' | 'spawn';
   unit: string;
   owner: string;
   x: number;
@@ -200,6 +200,14 @@ export class Game {
       if (rt.u.program) rt.u.program = { ...rt.u.program, vm: null };
       if (u.wakeAt !== null) g.queue.push([u.wakeAt, g.seq++, u.id]);
     }
+    // migraciones de partidas guardadas antiguas
+    for (const pl of g.players.values()) {
+      for (const r of g.resources.values()) if (pl.known[r.y * g.cfg.w + r.x]) pl.knownRes.add(r.id);
+      if (!s.cfg.level && g.cfg.baseUnit !== false && !g.unitsOf(pl.p.id).some((u) => u.type === 'base')) {
+        g.spawnUnit(pl, 'base', [pl.p.base.x, pl.p.base.y]);
+      }
+      pl.p.dock = g.parkingSpot(pl.p.base, pl.p.dock);
+    }
     return g;
   }
 
@@ -254,22 +262,60 @@ export class Game {
 
   /** alta de jugador con base ya colocada (también la usan los niveles del tutorial) */
   registerPlayer(id: string, name: string, bot: boolean, files: Record<string, string>, base: { x: number; y: number }, dock: { x: number; y: number }): Player {
+    dock = this.parkingSpot(base, dock);
     const storage = Object.fromEntries(RES_KINDS.map((k) => [k, this.cfg.startStorage?.[k] ?? 0])) as Record<ResKind, number>;
     const p: Player = {
       id, name, bot, color: PLAYER_COLORS[this.players.size % PLAYER_COLORS.length], base, dock, storage,
       known: '', knownRes: [], stats: this.emptyStats(),
       totals: { mined: 0, delivered: 0, explored: 0, built: 0, units: 0, harvested: 0, hacks: 0 },
-      compartido: null, unitCounter: { granjero: 0, minero: 0, constructor: 0, hacker: 0, aspersor: 0 }, files, lastSeen: this.time,
+      compartido: null, unitCounter: { granjero: 0, minero: 0, constructor: 0, hacker: 0, aspersor: 0, base: 0 }, files, lastSeen: this.time,
     };
     const rt: PlayerRt = { p, known: new Uint8Array(this.cfg.w * this.cfg.h), knownRes: new Set(), compartido: new PyDict() };
     this.players.set(id, rt);
-    this.reveal(rt, base.x, base.y, 5, true);
-    this.reveal(rt, base.x + 1, base.y + 1, 5, true);
+    this.reveal(rt, base.x, base.y, 7, true);
+    this.reveal(rt, base.x + 1, base.y + 1, 7, true);
+    if (this.cfg.baseUnit !== false) this.spawnUnit(rt, 'base', [base.x, base.y]);
     const types = this.cfg.startUnits ?? MOBILE_TYPES;
     const spots = this.spawnSpots(dock, types.length);
     types.forEach((t, i) => this.spawnUnit(rt, t, spots[i]));
     this.version++;
     return p;
+  }
+
+  /** casilla libre junto a la base 2×2 donde aparcar (transitable por tierra y aire) */
+  parkingSpot(base: { x: number; y: number }, pref?: { x: number; y: number }): { x: number; y: number } {
+    const ok = (x: number, y: number, strict: boolean) => {
+      const t = this.terrainAt(x, y);
+      if (t === -1 || TERRAIN[t].move <= 0 || !TERRAIN[t].air) return false;
+      if (this.distRect(x, y, base.x, base.y, 2, 2) !== 1) return false;
+      return !strict || (t !== T.CULTIVO && !this.resAt.has(y * this.cfg.w + x));
+    };
+    const ring: [number, number][] = [];
+    for (const dx of [0, 1]) ring.push([base.x + dx, base.y + 2]); // sur
+    for (const dy of [0, 1]) ring.push([base.x + 2, base.y + dy], [base.x - 1, base.y + dy]); // este, oeste
+    for (const dx of [0, 1]) ring.push([base.x + dx, base.y - 1]); // norte
+    ring.push([base.x - 1, base.y + 2], [base.x + 2, base.y + 2], [base.x - 1, base.y - 1], [base.x + 2, base.y - 1]);
+    if (pref && ok(pref.x, pref.y, true)) return pref;
+    for (const strict of [true, false]) for (const [x, y] of ring) if (ok(x, y, strict)) return { x, y };
+    return pref ?? { x: base.x, y: base.y + 2 };
+  }
+
+  /** casilla libre (sin unidades) junto a la base para una unidad nueva */
+  freeSpotNearBase(pl: PlayerRt): [number, number] | null {
+    const b = pl.p.base;
+    const busy = new Set([...this.units.values()].map((o) => o.u.y * this.cfg.w + o.u.x));
+    for (let r = 1; r <= 3; r++) {
+      for (let y = b.y - r; y <= b.y + 1 + r; y++) {
+        for (let x = b.x - r; x <= b.x + 1 + r; x++) {
+          if (this.distRect(x, y, b.x, b.y, 2, 2) !== r) continue;
+          const t = this.terrainAt(x, y);
+          if (t === -1 || TERRAIN[t].move <= 0 || busy.has(y * this.cfg.w + x)) continue;
+          if (x === pl.p.dock.x && y === pl.p.dock.y) continue;
+          return [x, y];
+        }
+      }
+    }
+    return null;
   }
 
   spawnSpots(dock: { x: number; y: number }, n: number): [number, number][] {
@@ -305,7 +351,7 @@ export class Game {
 
   spawnUnit(pl: PlayerRt, type: UnitType, at?: [number, number]): Unit {
     const info = UNIT_TYPES[type];
-    const n = ++pl.p.unitCounter[type];
+    const n = (pl.p.unitCounter[type] = (pl.p.unitCounter[type] ?? 0) + 1);
     const id = `${pl.p.id}:${info.prefix}${n}`;
     const [x, y] = at ?? [pl.p.dock.x, pl.p.dock.y];
     const u: Unit = {
@@ -333,6 +379,8 @@ export class Game {
         if (!pl.known[k]) {
           pl.known[k] = 1;
           n++;
+          const rid = this.resAt.get(k);
+          if (rid !== undefined) pl.knownRes.add(rid);
         }
       }
     }
@@ -392,7 +440,7 @@ export class Game {
   }
 
   inSignal(u: Unit): boolean {
-    if (!this.cfg.match || UNIT_TYPES[u.type].fixed) return true;
+    if (UNIT_TYPES[u.type].fixed || (this.cfg.level && !this.cfg.match)) return true;
     const b = this.players.get(u.owner)!.p.base;
     if (Math.hypot(u.x - b.x - 0.5, u.y - b.y - 0.5) <= SIGNAL.base) return true;
     return this.ownBuildings(u.owner, 'antena').some((a) => Math.hypot(u.x - a.x, u.y - a.y) <= SIGNAL.antena);
@@ -754,6 +802,30 @@ export class Game {
         if (target!.immuneUntil > g.time) err('AccionInvalidaError', `${target!.name} está protegida ${Math.ceil((target!.immuneUntil - g.time) / 1000)} s más`);
         return act('hackear')([d, modo], {});
       },
+      // centro operativo
+      fabricar: (args, kw) => {
+        if (args.length < 1) err('TypeError', 'fabricar(tipo, programa=None)');
+        const tipo = String(args[0]) as UnitType;
+        if (!FACTORY_TYPES.includes(tipo)) err('ValueError', `la base sólo fabrica ${FACTORY_TYPES.map((t) => `"${t}"`).join(', ')}`);
+        const prog = args[1] ?? kw.programa ?? null;
+        if (prog !== null) {
+          const f = String(prog).endsWith('.py') ? String(prog) : `${String(prog)}.py`;
+          if (!(f in pl().p.files)) err('ValueError', `no tienes ningún archivo "${f}"`);
+        }
+        const n = g.unitsOf(u().owner).filter((x) => x.type === tipo).length;
+        if (n >= FACTORY.maxPerType) err('AccionInvalidaError', `ya tienes ${n} unidades de tipo ${tipo} (máximo ${FACTORY.maxPerType})`);
+        const cost = UNIT_COST[tipo]!;
+        const falta = Object.entries(cost).filter(([k, c]) => pl().p.storage[k as ResKind] < c!).map(([k, c]) => `${c! - pl().p.storage[k as ResKind]} ${k}`);
+        if (falta.length) err('SinRecursosError', `faltan ${falta.join(', ')} para fabricar un ${tipo}`);
+        if (!g.freeSpotNearBase(pl())) err('AccionInvalidaError', 'no hay sitio libre junto a la base');
+        return act('fabricar')([tipo, prog], kw);
+      },
+      coste_unidad: (args) => {
+        const tipo = String(args[0]) as UnitType;
+        if (!FACTORY_TYPES.includes(tipo)) err('ValueError', `tipo desconocido ${pyRepr(args[0] ?? null)}`);
+        return PyDict.from(Object.entries(UNIT_COST[tipo]!).map(([k, n]) => [k, n!]));
+      },
+      unidades: () => g.unitsOf(u().owner).map((x) => new PyRecord('Unidad', { nombre: x.name, tipo: x.type, x: x.x, y: x.y, dueño: pl().p.name, enemiga: false })),
       // aspersor
       disparar: (args, kw) => {
         const [x, y] = xy(args, 'disparar');
@@ -933,6 +1005,17 @@ export class Game {
         dur = tipo === 'camino' && this.terrainAt(tx, ty) === T.AGUA ? 4000 : BUILDINGS[tipo].ms;
         energy = 2;
         data = { tipo, x: tx, y: ty, cost };
+        break;
+      }
+      case 'fabricar': {
+        const tipo = String(a[0]) as UnitType;
+        const cost = UNIT_COST[tipo]!;
+        for (const [k, n] of Object.entries(cost)) pl.p.storage[k as ResKind] -= n!;
+        label = `fabricar("${tipo}")`;
+        dur = FACTORY.ms;
+        const spot = this.freeSpotNearBase(pl) ?? [pl.p.dock.x, pl.p.dock.y];
+        data = { tipo, prog: a[1] ?? null, x: spot[0], y: spot[1], cost };
+        this.log(u, `Fabricando ${UNIT_TYPES[tipo].label.toLowerCase()} en (${spot[0]}, ${spot[1]})…`, 'info');
         break;
       }
       case 'hackear': {
@@ -1183,6 +1266,20 @@ export class Game {
       }
       case 'hackear':
         return this.applyHack(rt, a);
+      case 'fabricar': {
+        const d = a.data as { tipo: UnitType; prog: string | null; x: number; y: number };
+        const busy = [...this.units.values()].some((o) => o.u.x === d.x && o.u.y === d.y);
+        const spot = busy ? this.freeSpotNearBase(pl) ?? [d.x, d.y] : [d.x, d.y];
+        const nu = this.spawnUnit(pl, d.tipo, spot as [number, number]);
+        this.log(u, `✔ ${nu.name} fabricado en (${nu.x}, ${nu.y})`, 'ok');
+        this.emit(nu, 'spawn');
+        if (d.prog) {
+          const f = d.prog.endsWith('.py') ? d.prog : `${d.prog}.py`;
+          const r = this.runProgram(nu.id, f, pl.p.files);
+          if (!r.ok) this.log(nu, `No se pudo cargar ${f}: ${r.error}`, 'error');
+        }
+        return nu.name;
+      }
       case 'disparar': {
         const [x, y] = a.data as [number, number];
         let wet = 0;
@@ -1254,9 +1351,7 @@ export class Game {
     if (u.wetUntil > a.start) { this.log(u, 'Hackeo interrumpido: ¡te han mojado!', 'warn'); return false; }
     if (!trt) return false;
     const v = trt.u;
-    const d = a.label.charAt(9) as Dir;
-    const [dx, dy] = DIRS[d] ?? [0, 0];
-    if (v.x !== u.x + dx || v.y !== u.y + dy) { this.log(u, `Hackeo fallido: ${v.name} se ha movido`, 'warn'); return false; }
+    // una vez enganchado, el hackeo se completa aunque el objetivo se aleje
     if (v.immuneUntil > this.time) { this.log(u, `${v.name} está protegida`, 'warn'); return false; }
     if (!v.program) { this.log(u, `${v.name} no está ejecutando ningún programa`, 'warn'); return false; }
     let seed = hashSeed(u.id + v.id + this.time);

@@ -90,3 +90,20 @@ export class AblyTransport implements Transport {
     this.client?.close();
   }
 }
+
+/**
+ * Temporizador que no se congela cuando la pestaña queda en segundo plano
+ * (los navegadores paran requestAnimationFrame y frenan setInterval; un Worker no).
+ */
+export function backgroundTicker(cb: () => void, ms: number): () => void {
+  try {
+    const src = `let id = setInterval(() => postMessage(0), ${ms}); onmessage = () => clearInterval(id);`;
+    const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+    const w = new Worker(url);
+    w.onmessage = () => cb();
+    return () => { w.terminate(); URL.revokeObjectURL(url); };
+  } catch {
+    const id = setInterval(cb, ms);
+    return () => clearInterval(id);
+  }
+}

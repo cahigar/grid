@@ -18,6 +18,8 @@ export interface LevelSpec {
   storage?: WorldConfig['startStorage'];
   amount?: number;
   timeScale?: number;
+  /** la base es una unidad programable (fabricar) */
+  baseUnit?: boolean;
 }
 
 export interface BuiltLevel {
@@ -40,7 +42,7 @@ export function buildLevel(spec: LevelSpec, time = Date.now()): BuiltLevel {
   const props: Prop[] = [];
   const cfg: WorldConfig = {
     w, h, seed: spec.seed ?? 7, tzOffsetMin: 0, name: 'nivel', timeScale: spec.timeScale ?? 0.5,
-    startUnits: [], startStorage: spec.storage ?? {}, level: 'custom',
+    startUnits: [], startStorage: spec.storage ?? {}, level: 'custom', baseUnit: !!spec.baseUnit,
   };
   let base: [number, number] | null = null;
   let enemyBase: [number, number] | null = null;
@@ -80,6 +82,7 @@ export function buildLevel(spec: LevelSpec, time = Date.now()): BuiltLevel {
   for (const [t, x, y] of own) g.spawnUnit(pl, t, [x, y]);
   if (enemyBase || enemy.length) {
     const eb = enemyBase ?? [w - 2, 0];
+    g.cfg = { ...g.cfg, baseUnit: false };
     g.registerPlayer('p2', 'Colonia rival', true, {}, { x: eb[0], y: eb[1] }, { x: eb[0], y: Math.min(h - 1, eb[1] + 2) });
     const ep = g.player('p2')!;
     for (const [t, x, y] of enemy) g.spawnUnit(ep, t, [x, y]);
