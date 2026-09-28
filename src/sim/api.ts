@@ -102,8 +102,8 @@ export const API: ApiDoc[] = [
   // constructor
   {
     name: 'construir', sig: 'construir(tipo, direccion)', cat: 'Constructor', who: ['constructor'],
-    desc: 'Construye en la casilla vecina. Tipos y coste: "camino" (1 chatarra; sobre agua es un puente: 3 chatarra + 1 hierro), "almacen" (5 hierro + 3 chatarra), "silo" (3 hierro, sólo cosecha), "panel" (2 silicio + 2 cobre), "antena" (3 cobre + 2 hierro), "aspersor" (2 cobre + 2 hierro).',
-    returns: 'True', time: 'camino 0,7 s · edificios 2-3 s', energy: '2', raises: 'SinRecursosError si faltan recursos · AccionInvalidaError si la casilla no vale',
+    desc: 'Construye en la casilla vecina. Tipos y coste: "camino" (1 chatarra; sobre agua es un puente: 3 chatarra + 1 hierro), "almacen" (5 hierro + 3 chatarra), "silo" (3 hierro, sólo cosecha), "panel" (2 silicio + 2 cobre), "antena" (3 cobre + 2 hierro), "aspersor" (2 cobre + 2 hierro). Edificios que dan puntos al terminarse: "casa" (4 hierro + 4 chatarra → 12 puntos), "taller" (6 hierro + 3 cobre → 18), "aerogenerador" (5 hierro + 3 cobre + 1 silicio → 24), "laboratorio" (4 hierro + 4 cobre + 3 silicio → 36), "torre_verde" (8 hierro + 6 chatarra + 4 cosecha → 45).',
+    returns: 'True', time: 'camino 0,7 s · edificios 2-7 s', energy: '2', raises: 'SinRecursosError si faltan recursos · AccionInvalidaError si la casilla no vale',
     example: 'try:\n    construir("panel", "S")\nexcept SinRecursosError:\n    print("aún no hay silicio")',
   },
   { name: 'coste_edificio', sig: 'coste_edificio(tipo)', cat: 'Constructor', desc: 'Lo que cuesta un edificio.', returns: 'dict', time: '0', energy: '0' },

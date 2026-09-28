@@ -292,3 +292,16 @@ test('las vetas de casillas descubiertas se ven sin escanear', () => {
   assert.equal(visible.length, pl.knownRes.size);
   assert.ok(g.resources.size > 60, `vetas: ${g.resources.size}`);
 });
+
+test('edificios de puntos: el constructor levanta una torre verde y suma puntos', () => {
+  const { game: g } = buildLevel({ map: ['B.......', '........', '..C.....', '........'], storage: { hierro: 20, chatarra: 20, cosecha: 5, cobre: 5 } }, T0);
+  const u = run(g, 'CON-01', 'construir("torre_verde", "E")\nprint(coste_edificio("casa"))\nconstruir("casa", "S")\ntry:\n    construir("torre_verde", "O")\nexcept SinRecursosError as e:\n    print("falta:", e)\n');
+  g.advanceTo(T0 + 60_000);
+  const pl = g.player('p1')!;
+  assert.equal(pl.p.totals.buildScore, 45 + 12, logs(u));
+  assert.equal(g.score(pl), 57);
+  assert.equal(g.terrainAt(3, 2), T.ESTRUCTURA);
+  assert.ok(g.props.some((p) => p.kind === 'torre_verde' && p.x === 3 && p.y === 2));
+  assert.match(logs(u), /\+45 puntos/);
+  assert.match(logs(u), /falta:/);
+});

@@ -28,6 +28,8 @@ regar()
 `,
   'constructor.py': `# ═══ CONSTRUCTOR ═══  construir(tipo, direccion)
 # tipos: "camino", "almacen", "silo", "panel", "antena", "aspersor"
+# edificios que dan PUNTOS: "casa" (12), "taller" (18), "aerogenerador" (24),
+#                           "laboratorio" (36), "torre_verde" (45)
 # coste_edificio(tipo) → cuánto cuesta. Los recursos salen de tu almacén.
 # Si no hay recursos → SinRecursosError (¡usa try/except!)
 
@@ -210,6 +212,16 @@ for tipo, d in plan:
         except AccionInvalidaError as e:
             print("no puedo:", e)
             break
+    mover("S")
+for obra in ["casa", "taller", "casa", "aerogenerador"]:
+    for intento in range(4):
+        try:
+            construir(obra, "E")
+            break
+        except SinRecursosError:
+            esperar(20)
+        except AccionInvalidaError:
+            mover("S")
     mover("S")
 `,
   'hacker.py': `from rutas import ir_a

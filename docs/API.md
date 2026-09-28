@@ -238,13 +238,13 @@ Recursos sueltos en la casilla actual.
 
 | Primitiva | Devuelve | Tiempo | Energía |
 |---|---|---|---|
-| `construir(tipo, direccion)` | True | camino 0,7 s · edificios 2-3 s | 2 |
+| `construir(tipo, direccion)` | True | camino 0,7 s · edificios 2-7 s | 2 |
 | `coste_edificio(tipo)` | dict | 0 | 0 |
 | `edificios()` | lista de Edificio | 0 | 0 |
 
 ### `construir(tipo, direccion)`
 
-Construye en la casilla vecina. Tipos y coste: "camino" (1 chatarra; sobre agua es un puente: 3 chatarra + 1 hierro), "almacen" (5 hierro + 3 chatarra), "silo" (3 hierro, sólo cosecha), "panel" (2 silicio + 2 cobre), "antena" (3 cobre + 2 hierro), "aspersor" (2 cobre + 2 hierro).
+Construye en la casilla vecina. Tipos y coste: "camino" (1 chatarra; sobre agua es un puente: 3 chatarra + 1 hierro), "almacen" (5 hierro + 3 chatarra), "silo" (3 hierro, sólo cosecha), "panel" (2 silicio + 2 cobre), "antena" (3 cobre + 2 hierro), "aspersor" (2 cobre + 2 hierro). Edificios que dan puntos al terminarse: "casa" (4 hierro + 4 chatarra → 12 puntos), "taller" (6 hierro + 3 cobre → 18), "aerogenerador" (5 hierro + 3 cobre + 1 silicio → 24), "laboratorio" (4 hierro + 4 cobre + 3 silicio → 36), "torre_verde" (8 hierro + 6 chatarra + 4 cosecha → 45).
 
 ```python
 try:

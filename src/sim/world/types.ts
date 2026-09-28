@@ -70,7 +70,8 @@ export interface ResourceNode {
 export type PropKind =
   | 'arbol' | 'arbol_grande' | 'pino' | 'arbusto' | 'flores' | 'torre_ruina' | 'bloque_ruina' | 'muro_ruina'
   | 'coche' | 'farola' | 'panel_solar' | 'almacen' | 'antena' | 'silo' | 'roca' | 'cristales' | 'tuberia'
-  | 'cascada' | 'turbina' | 'invernadero' | 'poste' | 'aspersor';
+  | 'cascada' | 'turbina' | 'invernadero' | 'poste' | 'aspersor'
+  | 'casa' | 'taller' | 'aerogenerador' | 'laboratorio' | 'torre_verde';
 
 export interface Prop {
   x: number;
@@ -81,16 +82,25 @@ export interface Prop {
 }
 
 // ───── edificios que levanta el constructor ─────
-export type BuildKind = 'camino' | 'almacen' | 'silo' | 'panel' | 'antena' | 'aspersor';
+export type BuildKind = 'camino' | 'almacen' | 'silo' | 'panel' | 'antena' | 'aspersor'
+  | 'casa' | 'taller' | 'aerogenerador' | 'laboratorio' | 'torre_verde';
 
-export const BUILDINGS: Record<BuildKind, { label: string; cost: Partial<Record<ResKind, number>>; ms: number; desc: string }> = {
+export const BUILDINGS: Record<BuildKind, { label: string; cost: Partial<Record<ResKind, number>>; ms: number; desc: string; points?: number }> = {
   camino: { label: 'Camino', cost: { chatarra: 1 }, ms: 2000, desc: 'Moverse por él cuesta 1 s (por tierra y en vuelo). Sobre agua construye un puente (3 chatarra + 1 hierro).' },
   almacen: { label: 'Almacén', cost: { hierro: 5, chatarra: 3 }, ms: 8000, desc: 'Punto de descarga para cualquier recurso.' },
   silo: { label: 'Silo', cost: { hierro: 3 }, ms: 6000, desc: 'Punto de descarga sólo para cosecha.' },
   panel: { label: 'Panel solar', cost: { silicio: 2, cobre: 2 }, ms: 6000, desc: 'Las unidades junto a él pueden recargar().' },
-  antena: { label: 'Antena', cost: { cobre: 3, hierro: 2 }, ms: 8000, desc: 'Amplía el rango de señal (radio 7). Fuera de señal las acciones tardan el doble.' },
+  antena: { label: 'Antena', cost: { cobre: 3, hierro: 2 }, ms: 8000, desc: 'Amplía el rango de señal (radio 11). Fuera de señal las acciones tardan el doble.' },
   aspersor: { label: 'Aspersor', cost: { cobre: 2, hierro: 2 }, ms: 6000, desc: 'Unidad fija programable: disparar(x, y) riega huertos y moja drones enemigos (radio 3).' },
+  // edificios de la nueva colonia: cuestan más, pero dan muchos puntos al terminarlos
+  casa: { label: 'Vivienda modular', cost: { hierro: 4, chatarra: 4 }, ms: 12000, points: 12, desc: 'Módulos habitables con jardín en la azotea.' },
+  taller: { label: 'Taller', cost: { hierro: 6, cobre: 3 }, ms: 14000, points: 18, desc: 'Nave de reparaciones con tejado de dientes de sierra.' },
+  aerogenerador: { label: 'Aerogenerador', cost: { hierro: 5, cobre: 3, silicio: 1 }, ms: 14000, points: 24, desc: 'Turbina de viento que alimenta la colonia.' },
+  laboratorio: { label: 'Laboratorio', cost: { hierro: 4, cobre: 4, silicio: 3 }, ms: 18000, points: 36, desc: 'Cúpula de cristal para investigar la tecnología antigua.' },
+  torre_verde: { label: 'Torre verde', cost: { hierro: 8, chatarra: 6, cosecha: 4 }, ms: 20000, points: 45, desc: 'Torre de terrazas con cultivos: el símbolo de la nueva colonia.' },
 };
+/** edificios que dan puntos al terminarse */
+export const SCORE_BUILDINGS = (Object.keys(BUILDINGS) as BuildKind[]).filter((k) => BUILDINGS[k].points);
 export const BRIDGE_COST: Partial<Record<ResKind, number>> = { chatarra: 3, hierro: 1 };
 
 export interface Building {
@@ -271,7 +281,7 @@ export interface Player {
   known: string; // niebla serializada
   knownRes: number[];
   stats: DayStats;
-  totals: { mined: number; delivered: number; explored: number; built: number; units: number; harvested: number; hacks: number };
+  totals: { mined: number; delivered: number; explored: number; built: number; units: number; harvested: number; hacks: number; buildScore?: number };
   compartido: unknown;
   unitCounter: Record<UnitType, number>;
   files: Record<string, string>;

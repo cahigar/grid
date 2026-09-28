@@ -1260,7 +1260,12 @@ export class Game {
         this.version++;
         this.stats(pl).built++;
         pl.p.totals.built++;
-        this.log(u, `Construido: ${BUILDINGS[tipo].label} en (${x}, ${y})`, 'ok');
+        const pts = BUILDINGS[tipo].points ?? 0;
+        if (pts) {
+          pl.p.totals.buildScore = (pl.p.totals.buildScore ?? 0) + pts;
+          this.stats(pl).delivered += pts;
+          this.log(u, `Construido: ${BUILDINGS[tipo].label} en (${x}, ${y}) (+${pts} puntos)`, 'ok');
+        } else this.log(u, `Construido: ${BUILDINGS[tipo].label} en (${x}, ${y})`, 'ok');
         this.emit(u, 'build', BUILDINGS[tipo].label, x, y);
         return true;
       }
@@ -1405,7 +1410,7 @@ export class Game {
   }
 
   score(p: PlayerRt): number {
-    return Math.round(p.p.totals.delivered);
+    return Math.round(p.p.totals.delivered + (p.p.totals.buildScore ?? 0));
   }
 
   rankings(): Ranking[] {
@@ -1430,7 +1435,7 @@ export class Game {
     const general = pls
       .map((p) => ({ id: p.p.id, name: p.p.name, color: p.p.color, value: match ? this.score(p) : Math.round(this.stats(p).delivered) }))
       .sort((a, b) => b.value - a.value);
-    out.unshift({ key: 'general', label: 'Puntos', unit: 'valor de los recursos entregados', rows: general });
+    out.unshift({ key: 'general', label: 'Puntos', unit: 'recursos entregados + edificios', rows: general });
     return out;
   }
 }

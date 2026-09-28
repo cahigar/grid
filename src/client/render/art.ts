@@ -820,6 +820,180 @@ function paintGreenhouse(ctx: C): void {
   ctx.beginPath(); ctx.ellipse(-8, -14, 6, 2.5, -0.4, 0, Math.PI * 2); ctx.fill();
 }
 
+// ───────── edificios de la nueva colonia ─────────
+type Pt = readonly [number, number];
+/** cuadrilátero sobre una fachada (de a a b en el suelo), entre fracciones f0-f1 y alturas h0-h1 */
+function facade(ctx: C, a: Pt, b: Pt, f0: number, f1: number, h0: number, h1: number, fill: string): void {
+  const p = (f: number, h: number): Pt => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f - h];
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.moveTo(...p(f0, h0)); ctx.lineTo(...p(f1, h0)); ctx.lineTo(...p(f1, h1)); ctx.lineTo(...p(f0, h1));
+  ctx.closePath();
+  ctx.fill();
+}
+const WARM = '#ffd98a';
+const GLASS = '#8fd3e8';
+
+function plants(ctx: C, pts: Pt[], seed = 0): void {
+  pts.forEach(([x, y], i) => {
+    const r = 2.6 + ((i + seed) % 3) * 0.7;
+    ctx.fillStyle = (i + seed) % 2 ? '#5f9e3f' : '#8fd14f';
+    ctx.beginPath(); ctx.arc(x, y - r * 0.6, r, 0, Math.PI * 2); ctx.fill();
+  });
+}
+
+function paintHouse(ctx: C, color: string): void {
+  shadowEllipse(ctx, 8, 7, 32, 12, 0.28);
+  const lo = isoBox(ctx, 0, 0, 0.82, 0.82, 17, '#e9eeeb', '#dfe5e2', '#b4bebb');
+  for (const f of [0.18, 0.58]) {
+    facade(ctx, lo.wb, lo.sb, f, f + 0.24, 5, 12, WARM);
+    facade(ctx, lo.sb, lo.eb, f, f + 0.24, 5, 12, shade(WARM, -0.15));
+  }
+  facade(ctx, lo.wb, lo.sb, 0, 1, 15, 17, color);
+  // jardín en la azotea
+  ctx.fillStyle = '#7fb24f';
+  ctx.beginPath(); ctx.moveTo(...lo.n); ctx.lineTo(...lo.e); ctx.lineTo(...lo.s); ctx.lineTo(...lo.w); ctx.closePath(); ctx.fill();
+  // módulo superior desplazado
+  const up = isoBox(ctx, 5, -19, 0.42, 0.5, 13, '#f4f7f5', '#e3e9e6', '#9fc9c3');
+  facade(ctx, up.wb, up.sb, 0.2, 0.8, 4, 10, rgba(GLASS, 0.9));
+  facade(ctx, up.sb, up.eb, 0.25, 0.75, 4, 10, rgba(GLASS, 0.7));
+  // placas solares en el techo del módulo
+  ctx.fillStyle = '#1f4f6b';
+  ctx.beginPath(); ctx.moveTo(up.n[0], up.n[1] + 2); ctx.lineTo(up.e[0] - 3, up.e[1] + 1); ctx.lineTo(up.s[0], up.s[1] - 2); ctx.lineTo(up.w[0] + 3, up.w[1] + 1); ctx.closePath(); ctx.fill();
+  plants(ctx, [[lo.w[0] + 6, lo.w[1]], [lo.w[0] + 11, lo.w[1] + 3], [lo.s[0] - 4, lo.s[1] - 2], [lo.e[0] - 7, lo.e[1]]], 1);
+}
+
+function paintWorkshop(ctx: C, color: string, time: number): void {
+  shadowEllipse(ctx, 9, 8, 36, 13, 0.3);
+  const t = isoBox(ctx, 0, 0, 0.9, 0.84, 16, '#d8dedb', '#c5ccc9', '#96a19f');
+  // tejado de dientes de sierra (3 dientes a lo largo de la fachada izquierda)
+  for (let i = 0; i < 3; i++) {
+    const f0 = i / 3;
+    const f1 = (i + 1) / 3;
+    const a: Pt = [t.w[0] + (t.s[0] - t.w[0]) * f0, t.w[1] + (t.s[1] - t.w[1]) * f0];
+    const b: Pt = [t.w[0] + (t.s[0] - t.w[0]) * f1, t.w[1] + (t.s[1] - t.w[1]) * f1];
+    const dx = t.n[0] - t.w[0];
+    const dy = t.n[1] - t.w[1];
+    // cristal vertical al principio del diente y faldón ámbar que baja hacia el siguiente
+    ctx.fillStyle = rgba(GLASS, 0.9);
+    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(a[0], a[1] - 10); ctx.lineTo(a[0] + dx, a[1] + dy - 10); ctx.lineTo(a[0] + dx, a[1] + dy); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = i % 2 ? shade(PAL.amber, -0.08) : PAL.amber;
+    ctx.beginPath(); ctx.moveTo(a[0], a[1] - 10); ctx.lineTo(...b); ctx.lineTo(b[0] + dx, b[1] + dy); ctx.lineTo(a[0] + dx, a[1] + dy - 10); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = rgba('#ffffff', 0.55); ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(a[0], a[1] - 10); ctx.lineTo(a[0] + dx, a[1] + dy - 10); ctx.stroke();
+  }
+  // portón abierto con luz cálida y chispas
+  facade(ctx, t.wb, t.sb, 0.3, 0.72, 0, 12, '#3a3226');
+  facade(ctx, t.wb, t.sb, 0.34, 0.68, 0, 10, rgba(WARM, 0.55 + 0.25 * Math.sin(time / 180)));
+  facade(ctx, t.sb, t.eb, 0.15, 0.85, 7, 11, rgba(GLASS, 0.8));
+  facade(ctx, t.wb, t.sb, 0, 1, 14, 16, color);
+  // rejilla de ventilación
+  ctx.fillStyle = '#7d8a92';
+  ctx.fillRect(t.e[0] - 12, t.e[1] - 6, 5, 6);
+}
+
+function paintWindTurbine(ctx: C, color: string, time: number): void {
+  shadowEllipse(ctx, 14, 5, 22, 7, 0.25);
+  isoBox(ctx, 0, 0, 0.38, 0.38, 6, '#e3e8e6', '#cfd6d3', '#a4aeac');
+  // torre
+  const g = ctx.createLinearGradient(-3, 0, 3, 0);
+  g.addColorStop(0, '#f6f8f7'); g.addColorStop(1, '#b9c3c1');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.moveTo(-3.5, -6); ctx.lineTo(3.5, -6); ctx.lineTo(1.8, -84); ctx.lineTo(-1.8, -84); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = color;
+  ctx.fillRect(-3.2, -24, 6.4, 2.5);
+  // góndola
+  ctx.fillStyle = '#eef2ef';
+  ctx.beginPath(); ctx.ellipse(1, -86, 7, 3.6, -0.35, 0, Math.PI * 2); ctx.fill();
+  // palas girando
+  const hub: Pt = [-4, -85];
+  const ang = time / 380;
+  for (let i = 0; i < 3; i++) {
+    const a = ang + (i * Math.PI * 2) / 3;
+    const ex = Math.cos(a) * 30 * 0.72;
+    const ey = Math.sin(a) * 30;
+    const px = -Math.sin(a) * 3 * 0.72;
+    const py = Math.cos(a) * 3;
+    ctx.fillStyle = '#f7f9f8';
+    ctx.beginPath();
+    ctx.moveTo(hub[0] + px, hub[1] + py);
+    ctx.quadraticCurveTo(hub[0] + ex * 0.5 + px * 1.6, hub[1] + ey * 0.5 + py * 1.6, hub[0] + ex, hub[1] + ey);
+    ctx.lineTo(hub[0] - px, hub[1] - py);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = rgba('#8b9896', 0.6);
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#c9d1ce';
+  ctx.beginPath(); ctx.arc(hub[0], hub[1], 2.4, 0, Math.PI * 2); ctx.fill();
+}
+
+function paintLab(ctx: C, color: string, time: number): void {
+  shadowEllipse(ctx, 9, 8, 34, 13, 0.3);
+  const t = isoBox(ctx, 0, 0, 0.86, 0.86, 12, '#f2f5f3', '#e1e7e4', '#aeb8b5');
+  facade(ctx, t.wb, t.sb, 0.08, 0.92, 4, 8, rgba(GLASS, 0.85));
+  facade(ctx, t.sb, t.eb, 0.08, 0.92, 4, 8, rgba(GLASS, 0.65));
+  // anillo de neón que late
+  const k = (Math.sin(time / 500) + 1) / 2;
+  const cy = (t.n[1] + t.s[1]) / 2;
+  ctx.strokeStyle = rgba(PAL.teal, 0.55 + 0.4 * k);
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(0, cy, 21, 10.5, 0, 0, Math.PI * 2); ctx.stroke();
+  // cúpula de cristal
+  const dg = ctx.createRadialGradient(-6, cy - 18, 2, 0, cy - 6, 24);
+  dg.addColorStop(0, 'rgba(230,252,255,0.95)');
+  dg.addColorStop(1, 'rgba(95,190,210,0.55)');
+  ctx.fillStyle = dg;
+  ctx.beginPath(); ctx.ellipse(0, cy, 18, 9, 0, 0, Math.PI); ctx.ellipse(0, cy, 18, 22, 0, Math.PI, 0); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = rgba('#ffffff', 0.7);
+  ctx.lineWidth = 0.8;
+  for (const r of [0.45, 0.8]) { ctx.beginPath(); ctx.ellipse(0, cy, 18 * r, 22, 0, Math.PI, 0); ctx.stroke(); }
+  ctx.beginPath(); ctx.ellipse(0, cy - 11, 15.5, 5, 0, Math.PI, 0); ctx.stroke();
+  // plantas dentro de la cúpula
+  plants(ctx, [[-8, cy + 1], [-2, cy + 3], [5, cy + 1], [10, cy - 1]], 2);
+  // mástil con luz del color del jugador
+  ctx.strokeStyle = '#aab4b8'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(0, cy - 22); ctx.lineTo(0, cy - 32); ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(0, cy - 33, 2.2, 0, Math.PI * 2); ctx.fill();
+}
+
+function paintGreenTower(ctx: C, color: string, time: number): void {
+  shadowEllipse(ctx, 12, 8, 34, 13, 0.3);
+  const sizes = [0.82, 0.7, 0.58, 0.46];
+  let y = 0;
+  for (let i = 0; i < sizes.length; i++) {
+    const a = sizes[i];
+    const t = isoBox(ctx, 0, y, a, a, 14, '#86b957', '#e4e9e6', '#b5bfbc');
+    facade(ctx, t.wb, t.sb, 0.1, 0.9, 4, 10, i % 2 ? rgba(GLASS, 0.8) : WARM);
+    facade(ctx, t.sb, t.eb, 0.1, 0.9, 4, 10, rgba(GLASS, 0.6));
+    // terraza con plantas en el borde delantero
+    const n = 4 - Math.floor(i / 2);
+    const pts: Pt[] = [];
+    for (let j = 0; j < n; j++) {
+      const f = (j + 0.5) / n;
+      pts.push([t.w[0] + (t.s[0] - t.w[0]) * f, t.w[1] + (t.s[1] - t.w[1]) * f]);
+    }
+    plants(ctx, pts, i);
+    // enredaderas colgando
+    ctx.strokeStyle = rgba('#5f9e3f', 0.85);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(t.s[0] - 2, t.s[1]); ctx.quadraticCurveTo(t.s[0] - 3, t.s[1] + 6, t.s[0] - 1, t.s[1] + 10); ctx.stroke();
+    y -= 14;
+  }
+  // árbol y baliza en la cima
+  ctx.fillStyle = '#6b4a2f';
+  ctx.fillRect(-1, y - 8, 2, 8);
+  ctx.fillStyle = '#6fb04a';
+  ctx.beginPath(); ctx.arc(0, y - 12, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#8fd14f';
+  ctx.beginPath(); ctx.arc(-2, y - 14, 4, 0, Math.PI * 2); ctx.fill();
+  const on = (Math.sin(time / 600) + 1) / 2;
+  ctx.fillStyle = rgba(color, 0.5 + 0.5 * on);
+  ctx.beginPath(); ctx.arc(5, y - 4, 1.8, 0, Math.PI * 2); ctx.fill();
+}
+
 function paintWaterfall(ctx: C, time: number): void {
   ctx.fillStyle = rgba('#e6fbff', 0.55);
   for (let i = 0; i < 5; i++) {
@@ -834,7 +1008,7 @@ function paintWaterfall(ctx: C, time: number): void {
   }
 }
 
-export const ANIMATED_PROPS = new Set<PropKind>(['panel_solar', 'antena', 'farola', 'cascada', 'aspersor']);
+export const ANIMATED_PROPS = new Set<PropKind>(['panel_solar', 'antena', 'farola', 'cascada', 'aspersor', 'aerogenerador', 'laboratorio', 'torre_verde', 'taller']);
 
 export function paintProp(ctx: C, kind: PropKind, v: number, time = 0, color = PAL.teal): void {
   switch (kind) {
@@ -857,6 +1031,11 @@ export function paintProp(ctx: C, kind: PropKind, v: number, time = 0, color = P
     case 'invernadero': return paintGreenhouse(ctx);
     case 'cascada': return paintWaterfall(ctx, time);
     case 'aspersor': return paintSprinkler(ctx, color, time, 0);
+    case 'casa': return paintHouse(ctx, color);
+    case 'taller': return paintWorkshop(ctx, color, time);
+    case 'aerogenerador': return paintWindTurbine(ctx, color, time);
+    case 'laboratorio': return paintLab(ctx, color, time);
+    case 'torre_verde': return paintGreenTower(ctx, color, time);
     default: return;
   }
 }
@@ -871,6 +1050,10 @@ export function propHeight(kind: PropKind): number {
     case 'arbol': return 50;
     case 'bloque_ruina': return 60;
     case 'silo': return 55;
+    case 'aerogenerador': return 115;
+    case 'torre_verde': return 105;
+    case 'laboratorio': return 62;
+    case 'casa': return 58;
     default: return 45;
   }
 }

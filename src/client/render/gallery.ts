@@ -69,6 +69,16 @@ const SECTIONS: { title: string; note: string; items: Item[] }[] = [
     ],
   },
   {
+    title: 'Edificios de la colonia', note: 'Lo que levanta el constructor para ganar puntos: tecnología limpia y vegetación.',
+    items: [
+      { label: 'Vivienda modular', draw: prop('casa') },
+      { label: 'Taller', draw: prop('taller') },
+      { label: 'Aerogenerador', draw: prop('aerogenerador') },
+      { label: 'Laboratorio', draw: prop('laboratorio') },
+      { label: 'Torre verde', draw: prop('torre_verde') },
+    ],
+  },
+  {
     title: 'Naturaleza', note: 'Verde abundante, luz cálida desde el noroeste.',
     items: [
       { label: 'Árbol', draw: prop('arbol', 1) },

@@ -482,7 +482,7 @@ export class MirrorSession extends GameSession {
     if (m.scores) {
       for (const [id, name, color, score] of m.scores) {
         const p = g.player(id);
-        if (p) { p.p.name = name; p.p.color = color; p.p.totals = { ...p.p.totals, delivered: id === this.me ? p.p.totals.delivered : score }; }
+        if (p) { p.p.name = name; p.p.color = color; if (id !== this.me) p.p.totals = { ...p.p.totals, delivered: score, buildScore: 0 }; }
       }
     }
     if (m.match !== undefined) g.cfg.match = m.match;

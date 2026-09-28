@@ -324,7 +324,7 @@ export function mountGuide(): Cleanup {
         <div class="step"><div class="n">1</div><div><b>Lobby.</b> Entras con el código de sala (o el QR) y eliges tu nombre. Esperas a que el profesor empiece.</div></div>
         <div class="step"><div class="n">2</div><div><b>Preparación (≈5 min).</b> Ves el mapa y programas. Tus unidades todavía no se mueven: aprovecha para escribir y cargar tus programas.</div></div>
         <div class="step"><div class="n">3</div><div><b>Partida (≈15 min).</b> Todo se pone en marcha. Puedes corregir y volver a ejecutar cuando quieras.</div></div>
-        <div class="step"><div class="n">4</div><div><b>Final.</b> Gana quien más <b>puntos</b> haya conseguido entregando recursos en su base, almacenes o silos.</div></div>
+        <div class="step"><div class="n">4</div><div><b>Final.</b> Gana quien más <b>puntos</b> consiga: entregando recursos en su base, almacenes o silos, y levantando edificios (vivienda, taller, aerogenerador, laboratorio, torre verde).</div></div>
       </div>
       <div class="pts">${Object.entries(RESOURCES).map(([k, r]) => `<span class="res">${resIcon(k)} ${esc(r.label)} <b>${r.value}</b></span>`).join('')}</div>
       <p>Las <b>vetas</b> se ven en cuanto descubres su casilla; <code>escanear()</code> descubre un círculo alrededor y te da la lista con sus coordenadas. <code>base()</code> te da la casilla de aparcamiento junto a tu base.</p>
@@ -342,8 +342,8 @@ export function mountGuide(): Cleanup {
         regar()</pre>
 
       <h2 id="g-Edificios">4 · Edificios</h2>
-      <table class="tbl"><thead><tr><th>Tipo</th><th>Coste</th><th>Para qué sirve</th></tr></thead><tbody>
-      ${Object.entries(BUILDINGS).map(([k, b]) => `<tr><td><code>"${k}"</code></td><td>${Object.entries(b.cost).map(([r, n]) => `${n} ${r}`).join(' + ')}</td><td>${esc(b.desc)}</td></tr>`).join('')}
+      <table class="tbl"><thead><tr><th>Tipo</th><th>Coste</th><th>Puntos</th><th>Para qué sirve</th></tr></thead><tbody>
+      ${Object.entries(BUILDINGS).map(([k, b]) => `<tr><td><code>"${k}"</code></td><td>${Object.entries(b.cost).map(([r, n]) => `${n} ${r}`).join(' + ')}</td><td>${b.points ? `<b>+${b.points}</b>` : '—'}</td><td>${esc(b.desc)}</td></tr>`).join('')}
       </tbody></table>
       <p><b>Antenas:</b> cada antena da señal en un radio de ${SIGNAL.antena} casillas (en el mapa verás su círculo). Con señal tus unidades trabajan a velocidad normal; sin señal, cada acción tarda el doble.</p>
       <p><b>Centro operativo:</b> tu base también se programa (<code>base.py</code>). Con <code>fabricar("minero", "minero.py")</code> crea una unidad nueva junto a la base y le carga un programa. Costes: ${FACTORY_TYPES.map((t) => `${UNIT_TYPES[t].label.toLowerCase()} ${Object.entries(UNIT_COST[t]!).map(([r, n]) => `${n} ${r}`).join(' + ')}`).join(' · ')}. Máximo ${FACTORY.maxPerType} de cada tipo.</p>
