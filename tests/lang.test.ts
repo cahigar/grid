@@ -311,3 +311,44 @@ print(r.nombre, len(r.pasos))
   assert.equal(a, b);
   assert.equal(a, 'Ruta a: NE True True [\'N\', \'E\']\ncapturado mala: X\ngeneral mala: Z\na 2');
 });
+
+test('match/case: literales, |, _, capturas, secuencias, diccionarios y guardas', () => {
+  const src = `
+def clasifica(v):
+    match v:
+        case "N" | "S":
+            return "vertical"
+        case "E" | "O":
+            return "horizontal"
+        case 0:
+            return "cero"
+        case None:
+            return "nada"
+        case ("temp", t) if t > 40:
+            return f"calor {t}"
+        case ("temp", t):
+            return f"temp {t}"
+        case [x, y, *resto]:
+            return f"lista {x} {y} {resto}"
+        case {"tipo": "hierro", "cantidad": n}:
+            return f"hierro x{n}"
+        case -1:
+            return "menos uno"
+        case _:
+            return "otro"
+for v in ["N", "O", 0, None, ("temp", 45), ("temp", 20), [1, 2, 3, 4], [1, 2], {"tipo": "hierro", "cantidad": 3}, -1, 3.5]:
+    print(clasifica(v))
+match = 5
+print(match + 1)
+case = "sigue siendo un nombre"
+print(case)
+`;
+  assert.equal(outOf(src), ['vertical', 'horizontal', 'cero', 'nada', 'calor 45', 'temp 20', 'lista 1 2 [3, 4]', 'lista 1 2 []', 'hierro x3', 'menos uno', 'otro', '6', 'sigue siendo un nombre'].join('\n'));
+});
+
+test('match/case: errores claros', () => {
+  assert.match(checkSyntax('match x:\n    case A(b):\n        pass\n')!.msg, /patrones de clase/);
+  assert.match(checkSyntax('match x:\n    case (a, b) | (b, a):\n        pass\n')!.msg, /capturar/);
+  assert.match(checkSyntax('match x:\n    print(1)\n')!.msg, /case/);
+  assert.equal(checkSyntax('match x:\n    case 1:\n        pass\n    case _:\n        pass\nprint(1)\n'), null);
+});

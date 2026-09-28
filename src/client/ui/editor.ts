@@ -69,6 +69,8 @@ export interface EditorHost {
   onRun: () => void;
   onSave: () => void;
   runtimeError: (file: string) => { line: number; msg: string } | null;
+  /** primitivas a documentar y autocompletar (por defecto, las del juego) */
+  api?: typeof API;
 }
 
 export class CodeEditor {
@@ -105,7 +107,7 @@ export class CodeEditor {
         const w = view.state.wordAt(pos);
         if (!w) return null;
         const word = view.state.sliceDoc(w.from, w.to);
-        const api = API.find((a) => a.name === word);
+        const api = (host.api ?? API).find((a) => a.name === word);
         if (!api) return null;
         return {
           pos: w.from, end: w.to, above: true,
@@ -214,7 +216,7 @@ export class CodeEditor {
       return { from: word.from, options: [...mods, 'math', 'random', 'heapq'].map((m) => ({ label: m, type: 'namespace' })) };
     }
     const options: Completion[] = [
-      ...API.map((a) => ({
+      ...(this.host.api ?? API).map((a) => ({
         label: a.name, type: a.cat === 'Memoria' ? 'variable' : 'function', detail: a.sig, boost: 10,
         info: () => { const d = document.createElement('div'); d.innerHTML = apiHtml(a); return d; },
         apply: a.cat === 'Memoria' ? a.name : undefined,

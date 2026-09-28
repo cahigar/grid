@@ -650,10 +650,11 @@ export class VM implements VMApi {
         const m = STD_MODULES[name.slice(0, dot)];
         return (m[name.slice(dot + 1)] as BuiltinFn)(this, args, kw);
       }
-      const b = BUILTINS[name];
-      if (b) return b(this, args, kw);
+      // las primitivas del anfitrión tienen prioridad (p. ej. input() en la Academia)
       const h = this.host.functions[name];
       if (h) return h(args, kw);
+      const b = BUILTINS[name];
+      if (b) return b(this, args, kw);
       return err('NameError', `'${name}' no está definido`);
     }
     if (fn instanceof BoundMethod) return callMethod(this, fn.self, fn.name, args, kw);

@@ -65,6 +65,18 @@ function toStrNum(name: string, v: Value, int: boolean): number {
 }
 
 export const BUILTINS: Record<string, BuiltinFn> = {
+  // auxiliares de match/case (el parser los usa al traducir los patrones)
+  __es_secuencia: (_vm, args) => {
+    const v = args[0];
+    if (!(Array.isArray(v) || v instanceof Tuple)) return false;
+    const n = Array.isArray(v) ? v.length : v.items.length;
+    return args[2] ? n >= (args[1] as number) : n === args[1];
+  },
+  __tiene_claves: (_vm, args) => {
+    const d = args[0];
+    if (!(d instanceof PyDict)) return false;
+    return (args[1] as Value[]).every((k) => d.has(k));
+  },
   print: (vm, args, kw) => {
     const sep = kw.sep !== undefined ? pyStr(kw.sep) : ' ';
     vm.print(args.map((a) => vm.strOf(a)).join(sep));

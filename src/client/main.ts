@@ -1,5 +1,6 @@
 import './styles.css';
 import { api } from './net/api';
+import { mountAcademia, mountAcademiaLevel } from './academia/screens';
 import { drawGallery } from './render/gallery';
 import {
   mountAuth, mountGuide, mountHome, mountHost, mountPractice, mountStudentRoom, mountTeacher,
@@ -25,6 +26,7 @@ async function route(): Promise<void> {
     case 'tutorial': c = parts[1] ? mountTutorialLevel(Number(parts[1])) : mountTutorialMenu(); break;
     case 'practica': c = mountPractice(); break;
     case 'guia': c = mountGuide(); break;
+    case 'academia': c = parts[1] ? mountAcademiaLevel(parts[1], Math.max(0, Number(q.get('v') ?? 1) - 1)) : mountAcademia(); break;
     case 'profe': c = parts[1] ? mountHost(parts[1].toUpperCase()) : mountTeacher(); break;
     case 'sala': c = parts[1] ? mountStudentRoom(parts[1]) : mountHome(); break;
     default: location.hash = '#/'; return;

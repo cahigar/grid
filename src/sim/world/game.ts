@@ -1,3 +1,4 @@
+import { toPy, type J } from '../lang/interop';
 // Mundo simulado por eventos con marcas de tiempo (partidas de aula y práctica libre).
 import { checkSyntax } from '../lang/compiler';
 import { deserializeValue, deserializeVM, serializeValue, serializeVM, type ValueState } from '../lang/serialize';
@@ -104,6 +105,8 @@ const ALL_ACTIONS = new Set(Object.values(UNIT_TYPES).flatMap((t) => t.actions))
 
 export class Game {
   cfg: WorldConfig;
+  /** variables precargadas en todos los programas (retos de la Academia) */
+  preset: Record<string, J> | null = null;
   time: number;
   terrain: Uint8Array;
   props: Prop[];
@@ -899,7 +902,10 @@ export class Game {
     return {
       print: (text) => g.log(u(), text, 'print'),
       functions,
-      globals: { memoria: rt.memoria, compartido: this.players.get(rt.u.owner)?.compartido ?? new PyDict() },
+      globals: {
+        memoria: rt.memoria, compartido: this.players.get(rt.u.owner)?.compartido ?? new PyDict(),
+        ...(this.preset ? Object.fromEntries(Object.entries(this.preset).map(([k, v]) => [k, toPy(v)])) : {}),
+      },
     };
   }
 

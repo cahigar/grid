@@ -18,7 +18,7 @@ import { ICON, resIcon } from './ui/icons';
 
 export type Cleanup = () => void;
 
-const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+export const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const $ = <E extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector(sel) as E;
 const root = () => $('#app');
 
@@ -28,7 +28,7 @@ function go(hash: string): void {
   location.hash = hash;
 }
 
-function toast(msg: string, kind: 'ok' | 'err' | 'warn' | 'info' = 'info'): void {
+export function toast(msg: string, kind: 'ok' | 'err' | 'warn' | 'info' = 'info'): void {
   let box = $('#toasts');
   if (!box) {
     box = document.createElement('div');
@@ -89,12 +89,12 @@ function userChip(): string {
     <button class="tb-btn" id="logout">Salir</button>`;
 }
 
-function bindLogout(el: ParentNode, after: () => void): void {
+export function bindLogout(el: ParentNode, after: () => void): void {
   const b = el.querySelector<HTMLButtonElement>('#logout');
   if (b) b.onclick = async () => { await api.logout(); after(); };
 }
 
-function page(inner: string, opts: { backdrop?: boolean; wide?: boolean } = {}): HTMLElement {
+export function page(inner: string, opts: { backdrop?: boolean; wide?: boolean } = {}): HTMLElement {
   root().innerHTML = `
     ${opts.backdrop ? '<canvas id="backdrop" class="backdrop"></canvas>' : ''}
     <div class="screen ${opts.backdrop ? 'over' : ''}">
@@ -123,6 +123,7 @@ export function mountHome(): Cleanup {
         <form id="joinf" class="row"><input id="jcode" maxlength="6" placeholder="ABC123" autocomplete="off" aria-label="Código de sala"><button class="btn go" type="submit">Entrar</button></form>
         <p class="sm">Te lo da tu profesor (o escanea su QR).</p>
       </div>
+      <a class="card panel aca" href="#/academia"><div class="k">🎓 Academia</div><h3>Python desde cero</h3><p class="sm">Retos cortos de datos, condicionales y bucles. Sin cuenta: guarda tu avance con un código.</p></a>
       <a class="card panel" href="#/tutorial"><div class="k">${ICON.target} Tutorial</div><h3>${LEVELS.length} niveles para aprender</h3><p class="sm">Del primer <code>mover("E")</code> a clases y excepciones. Sin código de sala.</p></a>
       <a class="card panel" href="#/practica"><div class="k">${ICON.play} Práctica libre</div><h3>Tu colonia, a tu ritmo</h3><p class="sm">Un valle con colonias rivales. Tus programas siguen trabajando mientras no estás: al volver verás lo que ha pasado.</p></a>
       <a class="card panel" href="#/guia"><div class="k">${ICON.book} Guía del operador</div><h3>Instrucciones completas</h3><p class="sm">Unidades, edificios, huertos, hackeo y todas las primitivas.</p></a>

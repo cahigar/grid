@@ -13,8 +13,19 @@ export function parse(src: string): Stmt[] {
   return new Parser(tokenize(src)).program();
 }
 
+/** patrón de match/case (sólo en el parser: se traduce a if) */
+type Pat =
+  | { k: 'lit'; e: Expr; is: boolean }
+  | { k: 'any' }
+  | { k: 'cap'; name: string }
+  | { k: 'or'; alts: Pat[] }
+  | { k: 'seq'; items: Pat[]; star: string | null | undefined }
+  | { k: 'val'; e: Expr }
+  | { k: 'map'; keys: Expr[]; pats: Pat[] };
+
 class Parser {
   p = 0;
+  private matchN = 0;
   constructor(private toks: Token[]) {}
 
   get tok(): Token { return this.toks[this.p]; }
@@ -93,6 +104,8 @@ class Parser {
     const t = this.tok;
     if (t.t === 'name') {
       if (UNSUPPORTED[t.v]) this.err(UNSUPPORTED[t.v]);
+      if (t.v === 'match' && this.looksLikeMatch()) return this.matchStmt();
+      if (t.v === 'case' && this.peek().t !== 'op') this.err("'case' sólo puede ir dentro de un bloque 'match'");
       switch (t.v) {
         case 'if': return [this.ifStmt()];
         case 'while': {
@@ -174,6 +187,194 @@ class Parser {
       }
     }
     return this.simpleLine();
+  }
+
+  // ───── match / case (palabra clave «blanda») ─────
+  looksLikeMatch(): boolean {
+    let j = this.p + 1;
+    if (this.toks[j]?.t === 'op' && ['=', '.', ':', ',', ')', ']'].includes(this.toks[j].v)) return false;
+    while (j < this.toks.length && this.toks[j].t !== 'nl' && this.toks[j].t !== 'eof') j++;
+    const last = this.toks[j - 1];
+    return !!last && last.t === 'op' && last.v === ':' && this.toks[j + 1]?.t === 'indent';
+  }
+
+  matchStmt(): Stmt[] {
+    const t = this.tok;
+    this.p++;
+    const subject = this.exprList();
+    this.expectOp(':');
+    if (this.tok.t !== 'nl') this.err("tras 'match …:' los 'case' van en líneas nuevas con sangría");
+    this.p++;
+    if (this.toks[this.p].t !== 'indent') this.err('IndentationError: se esperaba un bloque con sangría');
+    this.p++;
+    const n = ++this.matchN;
+    const line = t.line;
+    const mName = `__match${n}`;
+    const okName = `__caso${n}`;
+    const M: Expr = { k: 'name', id: mName, line };
+    const out: Stmt[] = [
+      { k: 'assign', targets: [{ k: 'name', id: mName, line }], value: subject, line },
+      { k: 'assign', targets: [{ k: 'name', id: okName, line }], value: { k: 'const', v: false, line }, line },
+    ];
+    let cases = 0;
+    while (this.toks[this.p].t !== 'dedent' && this.toks[this.p].t !== 'eof') {
+      if (this.tok.t === 'nl') { this.p++; continue; }
+      if (!this.isKw('case')) this.err("dentro de 'match' sólo puede haber bloques 'case'" + this.near());
+      const ct = this.tok;
+      this.p++;
+      const pat = this.pattern();
+      const guard = this.eatKw('if') ? this.expr() : null;
+      this.expectOp(':');
+      const body = this.block();
+      const binds: [string, Expr][] = [];
+      const test = this.patTest(pat, M, binds, ct.line);
+      const l = ct.line;
+      const core: Stmt[] = [{ k: 'assign', targets: [{ k: 'name', id: okName, line: l }], value: { k: 'const', v: true, line: l }, line: l }, ...body];
+      const inner: Stmt[] = binds.map(([name, e]) => ({ k: 'assign', targets: [{ k: 'name', id: name, line: l }], value: e, line: l }) as Stmt);
+      if (guard) inner.push({ k: 'if', test: guard, body: core, orelse: [], line: l });
+      else inner.push(...core);
+      const notOk: Expr = { k: 'unary', op: 'not', e: { k: 'name', id: okName, line: l }, line: l };
+      out.push({ k: 'if', test: { k: 'bool', op: 'and', l: notOk, r: test, line: l }, body: inner, orelse: [], line: l });
+      cases++;
+    }
+    if (!cases) this.err("'match' necesita al menos un 'case'");
+    if (this.toks[this.p].t === 'dedent') this.p++;
+    return out;
+  }
+
+  pattern(): Pat {
+    const first = this.orPattern();
+    if (!this.isOp(',')) return first;
+    const items = [first];
+    while (this.eatOp(',')) {
+      if (this.isOp(':') || this.isKw('if')) break;
+      items.push(this.orPattern());
+    }
+    return this.seqPat(items);
+  }
+
+  private seqPat(items: Pat[]): Pat {
+    let star: string | null | undefined;
+    const plain: Pat[] = [];
+    items.forEach((it, i) => {
+      if (it.k === 'cap' && it.name.startsWith('*')) {
+        if (i !== items.length - 1) this.err('en un patrón, *resto sólo puede ir al final');
+        star = it.name.slice(1) === '_' ? null : it.name.slice(1);
+      } else plain.push(it);
+    });
+    return { k: 'seq', items: plain, star };
+  }
+
+  orPattern(): Pat {
+    const alts = [this.closedPattern()];
+    while (this.eatOp('|')) alts.push(this.closedPattern());
+    return alts.length === 1 ? alts[0] : { k: 'or', alts };
+  }
+
+  closedPattern(): Pat {
+    const t = this.tok;
+    const line = t.line;
+    if (t.t === 'num') { this.p++; return { k: 'lit', e: { k: 'num', v: Number(t.v), line }, is: false }; }
+    if (t.t === 'str') { this.p++; return { k: 'lit', e: { k: 'str', v: t.v, line }, is: false }; }
+    if (t.t === 'op') {
+      if (t.v === '-' && this.peek().t === 'num') { this.p++; const n = this.tok; this.p++; return { k: 'lit', e: { k: 'num', v: -Number(n.v), line }, is: false }; }
+      if (t.v === '*') {
+        this.p++;
+        const nm = this.tok;
+        if (nm.t !== 'name') this.err('tras * va un nombre: *resto');
+        this.p++;
+        return { k: 'cap', name: '*' + nm.v };
+      }
+      if (t.v === '(' || t.v === '[') {
+        const close = t.v === '(' ? ')' : ']';
+        this.p++;
+        const items: Pat[] = [];
+        let comma = false;
+        while (!this.isOp(close)) {
+          items.push(this.orPattern());
+          if (!this.eatOp(',')) break;
+          comma = true;
+        }
+        this.expectOp(close);
+        if (close === ')' && items.length === 1 && !comma) return items[0];
+        return this.seqPat(items);
+      }
+      if (t.v === '{') {
+        this.p++;
+        const keys: Expr[] = [];
+        const pats: Pat[] = [];
+        while (!this.isOp('}')) {
+          const kt = this.tok;
+          if (kt.t !== 'str' && kt.t !== 'num') this.err('en un patrón de diccionario las claves deben ser textos o números');
+          this.p++;
+          keys.push(kt.t === 'str' ? { k: 'str', v: kt.v, line } : { k: 'num', v: Number(kt.v), line });
+          this.expectOp(':');
+          pats.push(this.orPattern());
+          if (!this.eatOp(',')) break;
+        }
+        this.expectOp('}');
+        return { k: 'map', keys, pats };
+      }
+    }
+    if (t.t === 'name') {
+      if (t.v === 'None' || t.v === 'True' || t.v === 'False') {
+        this.p++;
+        return { k: 'lit', e: { k: 'const', v: t.v === 'None' ? null : t.v === 'True', line }, is: true };
+      }
+      if (isKeyword(t.v)) this.err(`'${t.v}' no puede usarse en un patrón`);
+      this.p++;
+      if (t.v === '_' ) return { k: 'any' };
+      if (this.isOp('(')) this.err('los patrones de clase (Tipo(...)) no están disponibles en PyGrid');
+      if (this.isOp('.')) {
+        let e: Expr = { k: 'name', id: t.v, line };
+        while (this.eatOp('.')) e = { k: 'attr', obj: e, name: this.ident(), line };
+        return { k: 'val', e };
+      }
+      return { k: 'cap', name: t.v };
+    }
+    return this.err('patrón no válido' + this.near());
+  }
+
+  /** condición que comprueba el patrón; las capturas se añaden a binds */
+  patTest(p: Pat, E: Expr, binds: [string, Expr][], line: number): Expr {
+    const T: Expr = { k: 'const', v: true, line };
+    const and = (a: Expr, b: Expr): Expr => (a.k === 'const' && a.v === true ? b : b.k === 'const' && b.v === true ? a : { k: 'bool', op: 'and', l: a, r: b, line });
+    switch (p.k) {
+      case 'any': return T;
+      case 'cap':
+        if (binds.some(([n]) => n === p.name)) this.err(`el nombre '${p.name}' aparece dos veces en el patrón`);
+        binds.push([p.name, E]);
+        return T;
+      case 'lit': return { k: 'cmp', ops: [p.is ? 'is' : '=='], operands: [E, p.e], line };
+      case 'val': return { k: 'cmp', ops: ['=='], operands: [E, p.e], line };
+      case 'or': {
+        let out: Expr | null = null;
+        for (const a of p.alts) {
+          const b: [string, Expr][] = [];
+          const t = this.patTest(a, E, b, line);
+          if (b.length) this.err('no se pueden capturar variables dentro de un patrón con |');
+          out = out ? { k: 'bool', op: 'or', l: out, r: t, line } : t;
+        }
+        return out!;
+      }
+      case 'seq': {
+        let out: Expr = { k: 'call', fn: { k: 'name', id: '__es_secuencia', line }, args: [E, { k: 'num', v: p.items.length, line }, { k: 'const', v: p.star !== undefined, line }], kwargs: [], line };
+        p.items.forEach((it, i) => {
+          out = and(out, this.patTest(it, { k: 'sub', obj: E, index: { k: 'num', v: i, line }, line }, binds, line));
+        });
+        if (p.star) {
+          binds.push([p.star, { k: 'call', fn: { k: 'name', id: 'list', line }, args: [{ k: 'sub', obj: E, index: { k: 'slice', lo: { k: 'num', v: p.items.length, line }, hi: null, step: null, line }, line }], kwargs: [], line }]);
+        }
+        return out;
+      }
+      case 'map': {
+        let out: Expr = { k: 'call', fn: { k: 'name', id: '__tiene_claves', line }, args: [E, { k: 'list', items: p.keys, line }], kwargs: [], line };
+        p.keys.forEach((k, i) => {
+          out = and(out, this.patTest(p.pats[i], { k: 'sub', obj: E, index: k, line }, binds, line));
+        });
+        return out;
+      }
+    }
   }
 
   ifStmt(): Stmt {
