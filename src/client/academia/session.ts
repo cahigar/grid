@@ -1,5 +1,5 @@
 // Sesión de un reto de mapa de la Academia (una variante visible, sin guardar mundo).
-import { buildMapVariant, type MapLevel } from '../../sim/academia/engine';
+import { buildMapVariant, withCall, type MapLevel } from '../../sim/academia/engine';
 import { GameSession } from '../session';
 
 export class AcademiaMapSession extends GameSession {
@@ -21,6 +21,9 @@ export class AcademiaMapSession extends GameSession {
   override run(unitId: string, file: string) {
     this.lastCode = this.filesOf('p1')[file] ?? '';
     this.visited.clear();
-    return super.run(unitId, file);
+    // la base añade su llamada de prueba (si el reto la tiene) y los módulos ya escritos
+    const files = { ...(this.level.modules ?? {}), ...this.filesOf('p1') };
+    files[file] = withCall(files[file] ?? '', this.level.variants[this.variant]);
+    return this.game.runProgram(unitId, file, files);
   }
 }

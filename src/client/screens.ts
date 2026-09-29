@@ -5,6 +5,8 @@ import { BOT_FILES, BOT_NAMES, DEFAULT_PROGRAM } from '../sim/world/content';
 import { Game } from '../sim/world/game';
 import { BUILDINGS, FACTORY, FACTORY_TYPES, HACK, RESOURCES, SIGNAL, UNIT_COST, UNIT_TYPES, MOBILE_TYPES, type UnitType } from '../sim/world/types';
 import { App } from './app';
+import { sound, soundButton } from './audio';
+import { confetti } from './ui/celebrate';
 import { api, type JoinInfo } from './net/api';
 import { backgroundTicker } from './net/transport';
 import { DEFAULT_SETTINGS, HostSession, MirrorSession, type LobbySettings, type RosterEntry, type ToStudent } from './net/multiplayer';
@@ -106,6 +108,7 @@ export function page(inner: string, opts: { backdrop?: boolean; wide?: boolean }
       <main class="scr-main ${opts.wide ? 'wide' : ''}">${inner}</main>
       <div id="toasts"></div><div id="modal-root"></div>
     </div>`;
+  root().querySelector('.scr-user')?.prepend(soundButton());
   return root();
 }
 
@@ -279,6 +282,8 @@ export async function mountTutorialLevel(n: number): Promise<Cleanup> {
         api.saveProgress(n, true, sess.lastCode);
         const next = LEVELS.find((l) => l.n === n + 1);
         setTimeout(() => {
+          sound.success();
+          confetti();
           a.modal(`<div class="k-lbl">¡Reto superado!</div><h2>${esc(level.title)} ✓</h2><p class="lead">Has usado: <b>${esc(level.concept)}</b>. Programa de ${codeLines(sess.lastCode)} líneas.</p>
             <div class="foot"><a class="btn" href="#/tutorial">Niveles</a>${next ? `<a class="btn go" href="#/tutorial/${next.n}">Siguiente: ${esc(next.title)}</a>` : '<a class="btn go" href="#/">¡Tutorial completado!</a>'}</div>`);
         }, 700);

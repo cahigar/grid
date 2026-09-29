@@ -32,6 +32,8 @@ export interface CompGen {
 export interface Param {
   name: string;
   def: Expr | null;
+  /** *args, **kwargs o parámetro sólo-por-nombre (tras *args) */
+  kind?: 'args' | 'kwargs' | 'kwonly';
 }
 
 export interface Handler {

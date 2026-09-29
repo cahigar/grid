@@ -102,6 +102,35 @@ enviar(total)`,
         mover("O")
     mover("S")`,
   bj: 'for ins in instrucciones:\n    for i in range(int(ins[1:])):\n        mover(ins[0])',
+  f1: 'def doble(n):\n    return n * 2',
+  f2: 'def distancia(x1, y1, x2, y2):\n    return abs(x2 - x1) + abs(y2 - y1)',
+  f3: `def extremos(lecturas):
+    menor = lecturas[0]
+    mayor = lecturas[0]
+    for n in lecturas:
+        if n < menor:
+            menor = n
+        if n > mayor:
+            mayor = n
+    return menor, mayor`,
+  f4: 'def ruta(pasos=1, direccion="E"):\n    return direccion * pasos',
+  f5: 'def total(*cargas):\n    return sum(cargas)',
+  f6: 'def pedido(destino, **materiales):\n    return {"destino": destino, "materiales": materiales, "total": sum(materiales.values())}',
+  f7: 'def ordenar(vetas):\n    return sorted(vetas, key=lambda p: abs(p[0]) + abs(p[1]))',
+  f8: 'from herramientas import mas_cercano\nenviar(mas_cercano(origen, puntos))',
+  fj: `def ir_a(x, y):
+    while posicion()[0] < x:
+        mover("E")
+    while posicion()[0] > x:
+        mover("O")
+    while posicion()[1] < y:
+        mover("S")
+    while posicion()[1] > y:
+        mover("N")
+
+def patrulla(*puntos):
+    for p in puntos:
+        ir_a(p[0], p[1])`,
 };
 
 for (const lvl of ALL_LEVELS) {

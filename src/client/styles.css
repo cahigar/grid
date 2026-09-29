@@ -567,3 +567,27 @@ body.ac-full .scr-main.wide { max-width: none; padding: 12px 16px 16px; }
 .ac-case-c.ko .mk { background: var(--red); color: #2a0a06; }
 .ac-mini .ac-score { gap: 4px; margin-bottom: 4px; }
 .ac-mini .ac-score .sm { font-size: 11px; }
+
+/* ═════════════ celebraciones ═════════════ */
+.snd-btn { font-size: 15px; min-width: 36px; justify-content: center; }
+.confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 400; }
+.win-bg { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 16px; background: rgba(4, 10, 12, 0.55); backdrop-filter: blur(3px); animation: fin 0.25s; }
+.win { width: min(520px, 100%); padding: 26px 26px 20px; text-align: center; background: rgba(12, 24, 26, 0.97); border-color: rgba(47, 212, 192, 0.45); box-shadow: 0 0 40px rgba(47, 212, 192, 0.25), var(--shadow); animation: winpop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.win.boss { border-color: rgba(242, 169, 59, 0.6); box-shadow: 0 0 50px rgba(242, 169, 59, 0.3), var(--shadow); }
+@keyframes winpop { from { transform: scale(0.7); opacity: 0; } }
+.win h2 { margin: 4px 0 6px; font-size: 26px; }
+.win-stars { display: flex; justify-content: center; gap: 10px; margin: 8px 0 6px; }
+.win-stars .ws { font-size: 58px; line-height: 1; color: rgba(255, 255, 255, 0.12); }
+.win-stars .ws.on { color: var(--amber); text-shadow: 0 0 18px rgba(242, 169, 59, 0.9), 0 0 4px #fff3; animation: starin 0.5s both cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes starin { from { transform: scale(0) rotate(-90deg); opacity: 0; } to { transform: scale(1) rotate(0); opacity: 1; } }
+.win-msg { color: #d6e7e3; margin: 6px 0 12px; font-size: 15px; line-height: 1.5; }
+.win-why { list-style: none; padding: 0; margin: 0 auto 10px; text-align: left; max-width: 420px; display: grid; gap: 6px; }
+.win-why li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; padding: 7px 10px; border-radius: 9px; background: rgba(255, 255, 255, 0.03); }
+.win-why li span { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.win-why li.ok span { background: var(--green); color: #102a0a; }
+.win-why li.ko span { background: rgba(255, 255, 255, 0.12); color: var(--muted); }
+.win-why li.ko { color: var(--muted); }
+.win .foot { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.win .foot .btn { height: 40px; padding: 0 16px; }
+.ac-mod { margin: 8px 0; }
+.ac-mod pre { max-height: 220px; overflow: auto; }

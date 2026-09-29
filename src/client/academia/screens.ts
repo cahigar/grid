@@ -6,6 +6,8 @@ import { explainError } from '../../sim/academia/errors';
 import { addTime, exportCode, fmtTime, importCode, mergeProgress, points, totalSecs, totalStars, unlocked } from '../../sim/academia/progress';
 import { reprJ } from '../../sim/lang/interop';
 import { App } from '../app';
+import { sound } from '../audio';
+import { showLevelComplete } from '../ui/celebrate';
 import { esc, page, toast, type Cleanup } from '../screens';
 import { CodeEditor } from '../ui/editor';
 import { AcademiaMapSession } from './session';
@@ -165,9 +167,32 @@ function resultsHtml(level: Level, ev: Evaluation, compact = false): string {
       </details>`).join('')}</div>`}`;
 }
 
+/** ventana de celebración con el porqué de las estrellas */
+function celebrate(level: Level, ev: Evaluation, best: number): void {
+  const next = nextLevel(level);
+  const allOk = ev.results.every((r) => r.ok);
+  const criteria = [
+    { ok: ev.results[0]?.ok ?? false, text: '★ Funciona en el caso 1' },
+    { ok: allOk, text: `★★ Funciona en los ${ev.results.length} casos${allOk ? '' : ` (falla el caso ${ev.results.findIndex((r) => !r.ok) + 1})`}` },
+    { ok: ev.stars === 3, text: `★★★ En ${level.par} líneas o menos (el tuyo tiene ${ev.lines})` },
+  ];
+  const message = ev.stars === 3
+    ? (level.boss ? '¡Sección superada con la nota máxima!' : '¡Perfecto! Programa correcto, general y compacto.')
+    : ev.stars === 2
+      ? `¡Muy bien! Funciona en todos los casos. Para la 3ª estrella, intenta dejarlo en ${level.par} líneas.`
+      : 'Funciona en el primer caso, pero no en todos: tu programa tiene que valer para cualquier dato, no sólo para el del caso 1.';
+  showLevelComplete({
+    title: level.title, stars: ev.stars, best, improved: ev.stars >= best, criteria, message, boss: level.boss && ev.stars > 0,
+    next: next ? { href: `#/academia/${next.id}`, label: `Siguiente: ${next.title} →` } : { href: '#/academia', label: 'Volver a la Academia' },
+  });
+}
+
 function caseInputs(level: Level): string {
   return level.variants.map((v, i) => {
-    const vars = Object.entries(v.preset ?? {}).map(([k, val]) => `${k} = ${reprJ(val)}`).join('\n');
+    const vars = [
+      ...Object.entries(v.preset ?? {}).map(([k, val]) => `${k} = ${reprJ(val)}`),
+      ...(v.call ? [`# la base añade al final:\n${v.call}`] : []),
+    ].join('\n');
     const exp = level.kind === 'consola' && v.expect !== undefined
       ? (i === 0 ? `<div class="exp">→ la base espera <code>${esc(reprJ(v.expect))}</code></div>` : '<div class="exp sm">→ resultado oculto</div>')
       : '';
@@ -191,9 +216,10 @@ function consoleLevel(level: Level): Cleanup {
         <p class="ac-story">${esc(level.story)}</p>
         <div class="rule"><b>Objetivo:</b> ${esc(level.goal)}</div>
         <details class="ac-learn" open><summary>📘 Aprende</summary>${learnHtml(level)}</details>
+        ${Object.entries(level.modules ?? {}).map(([n, src]) => `<details class="ac-learn ac-mod" open><summary>📦 ${esc(n)} (ya escrito)</summary><pre class="api-ex">${esc(src)}</pre></details>`).join('')}
         <h4 class="ac-h4">Casos de prueba</h4>
         <div class="ac-cases">${caseInputs(level)}</div>
-        <p class="sm">Las variables de cada caso ya existen cuando empieza tu programa. Termina con <code>enviar(resultado)</code>.</p>
+        <p class="sm">${level.variants.some((v) => v.call) ? 'La base añadirá al final de tu programa una llamada a tu función para comprobarla. Tú sólo tienes que definirla.' : 'Las variables de cada caso ya existen cuando empieza tu programa. Termina con <code>enviar(resultado)</code>.'}</p>
       </aside>
       <section class="panel ac-code">
         <div class="ac-bar"><button class="btn go" id="ac-run" title="Ctrl+Enter">▶ Ejecutar</button><button class="btn" id="ac-hint">💡 Pista</button><button class="btn" id="ac-reset">↺ Empezar de nuevo</button><span class="spacer"></span><span class="sm" id="ac-lines"></span></div>
@@ -217,6 +243,7 @@ function consoleLevel(level: Level): Cleanup {
   ed.open('reto.py', code);
   $('#ac-lines', el).textContent = `${code.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).length} líneas`;
   const run = () => {
+    sound.run();
     const ev = evaluate(level, code);
     const e = ev.results.find((r) => r.error)?.error;
     lastErr = e && e.line ? { line: e.line, msg: `${e.type}: ${e.msg}` } : null;
@@ -226,8 +253,8 @@ function consoleLevel(level: Level): Cleanup {
     const out = $('#ac-out', el);
     out.innerHTML = resultsHtml(level, ev) + (now > 0 ? `<div class="ac-next">${next ? `<a class="btn go" href="#/academia/${next.id}">Siguiente: ${esc(next.title)} →</a>` : ''}<a class="btn" href="#/academia">Mapa de la Academia</a></div>` : '');
     $('h2 .ac-st', el).outerHTML = starsHtml(now);
-    if (now > before) toast(now === 3 ? '¡Tres estrellas! ★★★' : `¡Conseguido! ${'★'.repeat(now)}`, 'ok');
-    if (level.boss && now > before && before === 0) toast(`👑 ¡Sección «${s.title}» superada!`, 'ok');
+    if (ev.stars > 0) setTimeout(() => celebrate(level, ev, Math.max(before, now)), 250);
+    else sound.fail();
   };
   $('#ac-run', el).onclick = run;
   $('#ac-hint', el).onclick = () => {
@@ -255,6 +282,8 @@ function mapLevel(level: MapLevel, variant: number): Cleanup {
   let lastSig = '';
   let hintI = 0;
   let hasRun = false;
+  /** celebración pendiente hasta que el robot visible termine */
+  let pending: { ev: Evaluation; best: number; t: number } | null = null;
   document.getElementById('app')!.innerHTML = '';
   const orig = sess.run.bind(sess);
   sess.run = (u, f) => {
@@ -272,7 +301,8 @@ function mapLevel(level: MapLevel, variant: number): Cleanup {
       ev = evaluate(level, src);
       evVersion++;
       const { before, now } = award(level, ev, src);
-      if (now > before) setTimeout(() => app.toast(now === 3 ? '¡Tres estrellas! ★★★' : `¡Conseguido! ${'★'.repeat(now)}`, 'ok'), 400);
+      pending = { ev, best: Math.max(before, now), t: performance.now() };
+      sound.run();
     }
     return r;
   };
@@ -299,6 +329,13 @@ function mapLevel(level: MapLevel, variant: number): Cleanup {
     },
     sidePanel: (a, el) => {
       const goal = mapGoal(level, sess.game, sess.beacons, sess.visited);
+      const unit = sess.game.unitsOf('p1').find((x) => x.type === level.unit);
+      if (pending && unit && (unit.status !== 'RUNNING' || performance.now() - pending.t > 20_000)) {
+        const pd = pending;
+        pending = null;
+        if (pd.ev.stars > 0) setTimeout(() => celebrate(level, pd.ev, pd.best), 300);
+        else sound.fail();
+      }
       const st = loadProgress().stars[level.id] ?? 0;
       const sig = JSON.stringify([goal, evVersion, st]);
       if (sig === lastSig) return;
@@ -308,7 +345,7 @@ function mapLevel(level: MapLevel, variant: number): Cleanup {
         <div class="txt"><b>${esc(level.title)}</b> ${starsHtml(st)}<br><span class="sm">${esc(level.goal)}</span></div>
         <div class="ac-vars">${level.variants.map((v, i) => `<a class="chip ${i === variant ? 'on' : ''}" href="#/academia/${level.id}?v=${i + 1}">Caso ${i + 1}</a>`).join('')}</div>
         <div class="cnt" style="text-align:left">Viendo el caso ${variant + 1}: ${esc(goal.progress)}</div>
-        ${Object.keys(level.variants[variant].preset ?? {}).length ? `<pre class="api-ex">${esc(Object.entries(level.variants[variant].preset!).map(([k, v]) => `${k} = ${reprJ(v)}`).join('\n'))}</pre>` : ''}
+        ${Object.keys(level.variants[variant].preset ?? {}).length || level.variants[variant].call ? `<pre class="api-ex">${esc([...Object.entries(level.variants[variant].preset ?? {}).map(([k, v]) => `${k} = ${reprJ(v)}`), ...(level.variants[variant].call ? [`# la base añade al final:\n${level.variants[variant].call}`] : [])].join('\n'))}</pre>` : ''}
         ${ev ? `<div class="ac-mini">${resultsHtml(level, ev, true)}</div>` : '<div class="sm" style="margin-top:6px">Al ejecutar, tu programa se prueba también en los otros casos.</div>'}
         <div class="btn-row" style="margin-top:8px"><button class="btn" id="lv-learn">📘 Aprende</button><button class="btn" id="lv-hint">💡 Pista</button></div>
         ${st > 0 && next ? `<a class="btn go" style="margin-top:8px;width:100%" href="#/academia/${next.id}">Siguiente: ${esc(next.title)} →</a>` : ''}

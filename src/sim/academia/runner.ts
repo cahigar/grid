@@ -38,7 +38,8 @@ export function runConsole(code: string, preset: Record<string, J> = {}, inputs:
       },
     },
   };
-  const vm = new VM({ main: code, modules }, host, 7);
+  const mods = Object.fromEntries(Object.entries(modules).map(([k, v]) => [k.replace(/\.py$/, ''), v]));
+  const vm = new VM({ main: code, modules: mods }, host, 7);
   try {
     vm.start();
   } catch (e) {

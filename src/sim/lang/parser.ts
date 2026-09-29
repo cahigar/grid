@@ -525,15 +525,34 @@ class Parser {
 
   params(close: string): Param[] {
     const out: Param[] = [];
+    let afterStar = false;
+    let afterKw = false;
     while (!this.isOp(close)) {
-      if (this.isOp('*') || this.isOp('**')) this.err('*args y **kwargs no están disponibles en PyGrid');
+      if (afterKw) this.err('**kwargs tiene que ser el último parámetro');
+      if (this.eatOp('**')) {
+        const name = this.ident();
+        if (out.some((p) => p.name === name)) this.err(`parámetro '${name}' repetido`);
+        out.push({ name, def: null, kind: 'kwargs' });
+        afterKw = true;
+        if (!this.eatOp(',')) break;
+        continue;
+      }
+      if (this.eatOp('*')) {
+        if (afterStar) this.err('sólo puede haber un *args');
+        const name = this.ident();
+        if (out.some((p) => p.name === name)) this.err(`parámetro '${name}' repetido`);
+        out.push({ name, def: null, kind: 'args' });
+        afterStar = true;
+        if (!this.eatOp(',')) break;
+        continue;
+      }
       const name = this.ident();
       if (close === ')' && this.eatOp(':')) this.expr();
       let def: Expr | null = null;
       if (this.eatOp('=')) def = this.expr();
-      else if (out.some((p) => p.def)) this.err('un parámetro sin valor por defecto no puede ir después de uno con valor');
+      else if (!afterStar && out.some((p) => p.def)) this.err('un parámetro sin valor por defecto no puede ir después de uno con valor');
       if (out.some((p) => p.name === name)) this.err(`parámetro '${name}' repetido`);
-      out.push({ name, def });
+      out.push(afterStar ? { name, def, kind: 'kwonly' } : { name, def });
       if (!this.eatOp(',')) break;
     }
     return out;
@@ -695,13 +714,17 @@ class Parser {
         const args: Expr[] = [];
         const kwargs: { name: string; value: Expr }[] = [];
         while (!this.isOp(')')) {
-          if (this.tok.t === 'name' && this.peek().t === 'op' && this.peek().v === '=') {
+          if (this.eatOp('**')) {
+            kwargs.push({ name: '**', value: this.expr() });
+          } else if (this.tok.t === 'name' && this.peek().t === 'op' && this.peek().v === '=') {
             const name = this.ident();
             this.p++;
             kwargs.push({ name, value: this.expr() });
+          } else if (this.isOp('*')) {
+            if (kwargs.length) this.err('*lista tiene que ir antes de los argumentos con nombre');
+            args.push(this.starExpr());
           } else {
             if (kwargs.length) this.err('un argumento posicional no puede ir después de uno con nombre');
-            if (this.isOp('*')) this.err('*args no está disponible en PyGrid');
             const a = this.expr();
             if (this.isKw('for')) {
               args.push({ k: 'comp', kind: 'list', elt: a, gens: this.compGens(), line: a.line });

@@ -588,18 +588,240 @@ for ins in instrucciones:
   },
 ];
 
+
+// ═════════════════ 4 · Funciones ═════════════════
+const C = (call: string, expect: J, preset: Record<string, J> = {}): Variant => ({ call, expect, preset });
+const openMap = (w: number, h: number, start: [number, number], pts: [number, number][]) => {
+  const rows: string[] = [];
+  for (let y = 0; y < h; y++) {
+    let r = '';
+    for (let x = 0; x < w; x++) r += x === start[0] && y === start[1] ? 'M' : pts.some(([a, b]) => a === x && b === y) ? '*' : '.';
+    rows.push(r);
+  }
+  return rows;
+};
+const HERRAMIENTAS = `# herramientas.py · módulo de la colonia (ya escrito)
+
+def distancia(a, b):
+    """pasos entre dos puntos (x, y) moviéndose en cruz"""
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+def mas_cercano(origen, puntos):
+    """el punto de la lista más cercano a origen"""
+    mejor = puntos[0]
+    for p in puntos:
+        if distancia(origen, p) < distancia(origen, mejor):
+            mejor = p
+    return mejor
+`;
+
+const FUNCIONES: Level[] = [
+  {
+    id: 'f1', kind: 'consola', title: 'Doble de carga', concept: 'def, parámetros y return',
+    story: 'Los nuevos contenedores llevan el doble de carga. La base quiere una función que lo calcule para cualquier número.',
+    goal: 'Escribe la función doble(n) que DEVUELVA n multiplicado por 2. La base la probará con otros números.',
+    learn: [
+      { text: 'Una función es un bloque con nombre que puedes usar muchas veces. Recibe datos (parámetros) y devuelve un resultado con return.', code: 'def triple(x):\n    return x * 3\n\nprint(triple(5))   # 15' },
+      { text: 'print() sólo muestra; return entrega el valor a quien llamó a la función para que lo pueda usar.' },
+    ],
+    starter: `def doble(n):
+    resultado = n
+    return resultado
+
+print(doble(5))
+`,
+    hints: ['Cambia resultado = n por resultado = n * 2', 'O directamente: return n * 2'],
+    par: 2,
+    requires: [uses(/^\s*def\s+doble\s*\(/m, 'Define la función doble(n).'), uses(/\breturn\b/, 'La función tiene que usar return.')],
+    variants: [C('enviar(doble(4))', 8), C('enviar(doble(0))', 0), C('enviar(doble(-3))', -6)],
+  },
+  {
+    id: 'f2', kind: 'consola', title: 'Distancia', concept: 'Varios parámetros',
+    story: 'Los robots se mueven en cruz (nunca en diagonal). Para saber cuánto tardan, hay que contar los pasos entre dos puntos.',
+    goal: 'Escribe distancia(x1, y1, x2, y2) que devuelva abs(x2 - x1) + abs(y2 - y1).',
+    learn: [
+      { text: 'Los parámetros se separan con comas y se reciben en el mismo orden en que se pasan.', code: 'def area(ancho, alto):\n    return ancho * alto\n\nprint(area(3, 4))   # 12' },
+      { text: 'abs() quita el signo: abs(-5) es 5.' },
+    ],
+    starter: `def distancia(x1, y1, x2, y2):
+    return 0
+
+print(distancia(0, 0, 3, 4))   # debería ser 7
+`,
+    hints: ['return abs(x2 - x1) + abs(y2 - y1)'],
+    par: 2,
+    requires: [uses(/^\s*def\s+distancia\s*\(/m, 'Define la función distancia.')],
+    variants: [C('enviar(distancia(0, 0, 3, 4))', 7), C('enviar(distancia(5, 2, 1, 2))', 4), C('enviar(distancia(-1, 3, 2, -3))', 9)],
+  },
+  {
+    id: 'f3', kind: 'consola', title: 'Lo mínimo y lo máximo', concept: 'Devolver varios valores (tuplas)',
+    story: 'El sensor quiere saber a la vez la lectura más baja y la más alta de una lista.',
+    goal: 'Escribe extremos(lecturas) que devuelva (mínimo, máximo) SIN usar min() ni max().',
+    learn: [
+      { text: 'Una función puede devolver varios valores separados por comas: en realidad devuelve una tupla.', code: 'def dividir(a, b):\n    return a // b, a % b\n\ncociente, resto = dividir(17, 5)' },
+    ],
+    starter: `def extremos(lecturas):
+    menor = lecturas[0]
+    mayor = lecturas[0]
+    for n in lecturas:
+        pass
+    return menor, mayor
+
+print(extremos([4, 9, 1]))
+`,
+    hints: ['Dentro del for: if n < menor: menor = n', 'Y otro if para mayor.'],
+    par: 9,
+    requires: [uses(/^\s*def\s+extremos\s*\(/m, 'Define la función extremos.'), avoids(/\b(min|max)\s*\(/, 'Esta vez sin min() ni max(): recorre la lista tú.')],
+    variants: [C('enviar(extremos([4, 9, 1]))', tup(1, 9)), C('enviar(extremos([7]))', tup(7, 7)), C('enviar(extremos([-2, 10, 3, -8, 5]))', tup(-8, 10))],
+  },
+  {
+    id: 'f4', kind: 'consola', title: 'Valores por defecto', concept: 'Parámetros con valor por defecto y por nombre',
+    story: 'Casi siempre los drones avanzan 1 paso al Este. Queremos una función que no obligue a decirlo todo cada vez.',
+    goal: 'Escribe ruta(pasos=1, direccion="E") que devuelva la dirección repetida pasos veces ("EEE").',
+    learn: [
+      { text: 'Si un parámetro tiene valor por defecto, se puede omitir al llamar. También puedes pasar los parámetros por su nombre, en cualquier orden.', code: 'def saludo(nombre, texto="Hola"):\n    return texto + ", " + nombre\n\nsaludo("Ana")                  # "Hola, Ana"\nsaludo("Ana", texto="Ey")     # "Ey, Ana"' },
+      { text: 'Un texto multiplicado por un número se repite: "ab" * 3 es "ababab".' },
+    ],
+    starter: `def ruta(pasos, direccion):
+    return direccion * pasos
+
+print(ruta(3, "N"))
+`,
+    hints: ['def ruta(pasos=1, direccion="E"):'],
+    par: 2,
+    requires: [uses(/^\s*def\s+ruta\s*\([^)]*=/m, 'Da valores por defecto a los parámetros de ruta.')],
+    variants: [C('enviar(ruta())', 'E'), C('enviar(ruta(3, "N"))', 'NNN'), C('enviar(ruta(direccion="S", pasos=2))', 'SS')],
+  },
+  {
+    id: 'f5', kind: 'consola', title: 'Cualquier número de cargas', concept: '*args',
+    story: 'A veces un transporte trae una carga, a veces cinco. La función tiene que aceptar cuantas le den.',
+    goal: 'Escribe total(*cargas) que devuelva la suma de todas las cargas (0 si no hay ninguna).',
+    learn: [
+      { text: 'Con *nombre la función recibe todos los valores sueltos que le pasen, guardados en una tupla.', code: 'def cuenta(*cosas):\n    return len(cosas)\n\nprint(cuenta())          # 0\nprint(cuenta("a", "b"))  # 2' },
+      { text: 'Al llamar, *lista hace lo contrario: reparte una lista en valores sueltos: total(*[1, 2, 3])' },
+    ],
+    starter: `def total(cargas):
+    return sum(cargas)
+
+print(total([1, 2, 3]))
+`,
+    hints: ['def total(*cargas):', 'La base llama total(1, 2, 3), no total([1, 2, 3]).'],
+    par: 2,
+    requires: [uses(/^\s*def\s+total\s*\(\s*\*\w+/m, 'Usa *args: def total(*cargas):')],
+    variants: [C('enviar(total())', 0), C('enviar(total(5))', 5), C('enviar(total(1, 2, 3, 4))', 10)],
+  },
+  {
+    id: 'f6', kind: 'consola', title: 'El pedido', concept: '**kwargs',
+    story: 'Los pedidos llegan como pedido("mina", hierro=3, cobre=1): un destino y tantos materiales como haga falta.',
+    goal: 'Escribe pedido(destino, **materiales) que devuelva {"destino": destino, "materiales": materiales, "total": suma de las cantidades}.',
+    learn: [
+      { text: 'Con **nombre la función recibe los argumentos con nombre que no conoce, guardados en un diccionario.', code: 'def ficha(**datos):\n    return datos\n\nprint(ficha(edad=16, curso="1º"))\n# {"edad": 16, "curso": "1º"}' },
+      { text: 'Al llamar, **diccionario reparte un diccionario en argumentos con nombre.' },
+    ],
+    starter: `def pedido(destino, **materiales):
+    print("Destino:", destino)
+    print("Materiales:", materiales)
+    return {}
+
+print(pedido("mina", hierro=3, cobre=1))
+`,
+    hints: ['total = sum(materiales.values())', 'return {"destino": destino, "materiales": materiales, "total": total}'],
+    par: 3,
+    requires: [uses(/\*\*\w+/, 'Usa **kwargs.')],
+    variants: [
+      C('enviar(pedido("mina", hierro=3, cobre=1))', { destino: 'mina', materiales: { hierro: 3, cobre: 1 }, total: 4 }),
+      C('enviar(pedido("silo"))', { destino: 'silo', materiales: {}, total: 0 }),
+      C('enviar(pedido("taller", **{"silicio": 2, "chatarra": 5, "cobre": 1}))', { destino: 'taller', materiales: { silicio: 2, chatarra: 5, cobre: 1 }, total: 8 }),
+    ],
+  },
+  {
+    id: 'f7', kind: 'consola', title: 'La más cercana primero', concept: 'Funciones como valores y lambda',
+    story: 'El minero quiere visitar las vetas de la más cercana a la más lejana (desde la base, en (0, 0)).',
+    goal: 'Escribe ordenar(vetas) que devuelva la lista de puntos (x, y) ordenada por distancia a (0, 0), usando sorted(..., key=...).',
+    learn: [
+      { text: 'sorted() puede ordenar por lo que tú digas: le pasas en key una FUNCIÓN que calcula el valor de cada elemento.', code: 'palabras = ["ccc", "a", "bb"]\nprint(sorted(palabras, key=len))   # ["a", "bb", "ccc"]' },
+      { text: 'lambda crea una función pequeña en una línea: lambda p: p[0] + p[1]', code: 'dist = lambda p: abs(p[0]) + abs(p[1])\nprint(dist((3, -4)))   # 7' },
+    ],
+    starter: `def ordenar(vetas):
+    return sorted(vetas)
+
+print(ordenar([(5, 1), (1, 1), (0, 3)]))
+`,
+    hints: ['sorted(vetas, key=lambda p: abs(p[0]) + abs(p[1]))'],
+    par: 2,
+    requires: [uses(/key\s*=/, 'Usa sorted(…, key=…).')],
+    variants: [
+      C('enviar(ordenar([(5, 1), (1, 1), (0, 3)]))', [tup(1, 1), tup(0, 3), tup(5, 1)]),
+      C('enviar(ordenar([(0, 9)]))', [tup(0, 9)]),
+      C('enviar(ordenar([(-4, 0), (2, 1), (0, -1), (3, 3)]))', [tup(0, -1), tup(2, 1), tup(-4, 0), tup(3, 3)]),
+    ],
+  },
+  {
+    id: 'f8', kind: 'consola', title: 'Herramientas de la colonia', concept: 'Módulos: import y from … import',
+    story: 'Otro ingeniero ya escribió un módulo, herramientas.py, con funciones útiles. No hace falta reinventarlas: impórtalas.',
+    goal: 'Envía el punto de la lista puntos más cercano a origen, usando el módulo herramientas.',
+    learn: [
+      { text: 'Un módulo es un archivo .py con funciones. Se usa con import (y se escribe modulo.funcion) o con from modulo import funcion.', code: 'import math\nprint(math.sqrt(16))\n\nfrom math import sqrt\nprint(sqrt(16))' },
+      { text: 'Así se reparte un programa grande en piezas pequeñas y reutilizables.' },
+    ],
+    modules: { 'herramientas.py': HERRAMIENTAS },
+    starter: `import herramientas
+
+print(herramientas.distancia((0, 0), (2, 3)))
+print(origen, puntos)
+enviar(puntos[0])
+`,
+    hints: ['herramientas.mas_cercano(origen, puntos)', 'O bien: from herramientas import mas_cercano'],
+    par: 2,
+    requires: [uses(/\bimport\s+herramientas\b|\bfrom\s+herramientas\s+import\b/, 'Importa el módulo herramientas.'), avoids(/^\s*def\s+mas_cercano/m, 'No la reescribas: impórtala.')],
+    variants: [
+      V({ origen: tup(0, 0), puntos: [tup(5, 5), tup(1, 2), tup(3, 0)] }, tup(1, 2)),
+      V({ origen: tup(4, 4), puntos: [tup(0, 0), tup(9, 9), tup(5, 3)] }, tup(5, 3)),
+      V({ origen: tup(2, 7), puntos: [tup(2, 1)] }, tup(2, 1)),
+    ],
+  },
+  {
+    id: 'fj', kind: 'mapa', unit: 'minero', mode: 'todas', boss: true, title: 'Piloto automático', concept: 'Jefe: funciones que usan funciones + *args',
+    story: 'Construye tu propio piloto automático: ir_a(x, y) lleva al minero a cualquier casilla y patrulla(*puntos) visita todos los puntos que le pasen. La base lo pondrá a prueba con distintas patrullas.',
+    goal: 'Define ir_a(x, y) y patrulla(*puntos). La base llamará a patrulla con las balizas ★ de cada caso.',
+    learn: [
+      { text: 'Una función puede usar otra: patrulla sólo tiene que llamar a ir_a con cada punto.', code: 'def patrulla(*puntos):\n    for p in puntos:\n        ir_a(p[0], p[1])' },
+      { text: 'posicion() devuelve (x, y) del robot. Muévete en x hasta coincidir y luego en y.' },
+    ],
+    starter: `def ir_a(x, y):
+    mx, my = posicion()
+    while mx < x:
+        mover("E")
+        mx, my = posicion()
+
+def patrulla(*puntos):
+    pass
+
+# La base añadirá algo como: patrulla((2, 1), (5, 3))
+`,
+    hints: ['En ir_a necesitas 4 while: E, O, S y N.', 'while my < y: mover("S") ... while my > y: mover("N")'],
+    par: 18,
+    requires: [uses(/^\s*def\s+ir_a\s*\(/m, 'Define ir_a(x, y).'), uses(/^\s*def\s+patrulla\s*\(\s*\*\w+/m, 'Define patrulla(*puntos).')],
+    variants: [
+      { call: 'patrulla((4, 1), (6, 4), (1, 3))', map: openMap(8, 6, [0, 0], [[4, 1], [6, 4], [1, 3]]) },
+      { call: 'patrulla((0, 0), (7, 0))', map: openMap(8, 5, [3, 4], [[0, 0], [7, 0]]) },
+      { call: 'patrulla((5, 5), (2, 2), (6, 1), (0, 4))', map: openMap(8, 7, [7, 6], [[5, 5], [2, 2], [6, 1], [0, 4]]) },
+    ],
+  },
+];
+
 export const SECTIONS: Section[] = [
   { id: 'datos', n: 1, title: 'Datos', subtitle: 'Variables, textos, listas, tuplas, diccionarios y conjuntos', icon: '📡', levels: DATOS },
   { id: 'condicionales', n: 2, title: 'Condicionales', subtitle: 'if, else, elif, and/or/not, ternario y match/case', icon: '🔀', levels: COND },
   { id: 'bucles', n: 3, title: 'Bucles', subtitle: 'for, range, while, break/continue, enumerate y zip', icon: '🔁', levels: BUCLES },
-  { id: 'funciones', n: 4, title: 'Funciones', subtitle: 'def, parámetros, *args, **kwargs, lambda y módulos', icon: '🧩', levels: [], soon: true },
+  { id: 'funciones', n: 4, title: 'Funciones', subtitle: 'def, parámetros, return, valores por defecto, *args, **kwargs, lambda y módulos', icon: '🧩', levels: FUNCIONES },
   { id: 'archivos', n: 5, title: 'Archivos', subtitle: 'txt, csv y hojas de cálculo: leer, escribir y modificar', icon: '🗂', levels: [], soon: true },
   { id: 'poo', n: 6, title: 'Objetos', subtitle: 'Clases, métodos, herencia y encapsulación', icon: '🤖', levels: [], soon: true },
   { id: 'apis', n: 7, title: 'APIs', subtitle: 'La red antigua: JSON, peticiones y errores', icon: '🌐', levels: [], soon: true },
 ];
 
 /** Orden fijo para el código de progreso: sólo se añade al final */
-export const LEVEL_ORDER: string[] = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'dj', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'cj', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'bj'];
+export const LEVEL_ORDER: string[] = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'dj', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'cj', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'bj', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'fj'];
 
 export const ALL_LEVELS: Level[] = SECTIONS.flatMap((s) => s.levels);
 export const levelById = (id: string) => ALL_LEVELS.find((l) => l.id === id);

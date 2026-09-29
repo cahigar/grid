@@ -15,6 +15,8 @@ export interface Variant {
   expect?: J;
   /** mapa (retos de mapa) */
   map?: string[];
+  /** código que la base añade al final para probar tus funciones, p. ej. "enviar(doble(4))" */
+  call?: string;
 }
 
 export interface Requirement { test: (code: string) => boolean; msg: string }
@@ -33,6 +35,8 @@ interface LevelBase {
   requires?: Requirement[];
   variants: Variant[];
   boss?: boolean;
+  /** módulos ya escritos que se pueden importar (sólo lectura) */
+  modules?: Record<string, string>;
 }
 export interface ConsoleLevel extends LevelBase { kind: 'consola'; check?: (run: ConsoleRun, v: Variant) => string | null }
 export interface MapLevel extends LevelBase { kind: 'mapa'; unit: UnitType; mode: 'meta' | 'todas' }
@@ -69,8 +73,13 @@ export function codeLines(src: string): number {
 
 const cleanPrints = (r: ConsoleRun) => r.prints;
 
+/** añade la llamada de prueba de la base al final del programa */
+export function withCall(code: string, v: Variant): string {
+  return v.call ? `${code.replace(/\s+$/, '')}\n${v.call}\n` : code;
+}
+
 function checkConsole(level: ConsoleLevel, v: Variant, code: string): VariantResult {
-  const r = runConsole(code, v.preset ?? {}, v.inputs ?? []);
+  const r = runConsole(withCall(code, v), v.preset ?? {}, v.inputs ?? [], level.modules ?? {});
   const base = { prints: cleanPrints(r), error: r.error };
   if (r.error) return { ok: false, msg: `${r.error.type}: ${r.error.msg} (línea ${r.error.line})`, ...base };
   if (level.check) {
@@ -107,7 +116,7 @@ function checkMap(level: MapLevel, v: Variant, code: string): VariantResult {
   const t0 = Date.UTC(2026, 0, 1);
   const { game, beacons } = buildMapVariant(level, v, t0);
   const u = game.unitsOf('p1').find((x) => x.type === level.unit)!;
-  const r = game.runProgram(u.id, 'reto.py', { 'reto.py': code });
+  const r = game.runProgram(u.id, 'reto.py', { ...(level.modules ?? {}), 'reto.py': withCall(code, v) });
   if (!r.ok) return { ok: false, msg: r.error ?? 'error', prints: [], error: { type: 'SyntaxError', msg: r.error ?? '', line: r.line ?? 0 } };
   const visited = new Set<string>();
   let goal = mapGoal(level, game, beacons, visited);

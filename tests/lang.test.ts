@@ -352,3 +352,41 @@ test('match/case: errores claros', () => {
   assert.match(checkSyntax('match x:\n    print(1)\n')!.msg, /case/);
   assert.equal(checkSyntax('match x:\n    case 1:\n        pass\n    case _:\n        pass\nprint(1)\n'), null);
 });
+
+test('funciones: por defecto, por nombre, *args, **kwargs, sólo-por-nombre y desempaquetado', () => {
+  const src = `
+def saludo(nombre, saludo="Hola"):
+    return f"{saludo}, {nombre}"
+print(saludo("Ana"), "|", saludo("Luis", saludo="Buenas"), "|", saludo(saludo="Ey", nombre="Noa"))
+def suma(*numeros):
+    total = 0
+    for n in numeros:
+        total += n
+    return total
+print(suma(), suma(1), suma(1, 2, 3), "ok")
+def pedido(destino, **cosas):
+    return (destino, cosas)
+print(pedido("mina", hierro=3, cobre=1))
+def f(a, *resto, sep="-", **extra):
+    return sep.join([str(a)] + [str(r) for r in resto]) + str(extra)
+print(f(1, 2, 3), f(1, sep="+"), f(1, 2, sep="", x=9))
+nums = [4, 5, 6]
+print(suma(*nums), suma(1, *nums, 2))
+opts = {"saludo": "Hey"}
+print(saludo("Eva", **opts))
+print(sorted(["ccc", "a", "bb"], key=len), list(map(lambda x: x * 2, [1, 2])))
+`;
+  assert.equal(outOf(src), [
+    'Hola, Ana | Buenas, Luis | Ey, Noa',
+    '0 1 6 ok',
+    "('mina', {'hierro': 3, 'cobre': 1})",
+    "1-2-3{} 1{} 12{'x': 9}",
+    '15 18',
+    'Hey, Eva',
+    "['a', 'bb', 'ccc'] [2, 4]",
+  ].join('\n'));
+  const e = run('def g(a):\n    return a\ng(1, 2)').r;
+  assert.equal(e.s === 'error' && e.type, 'TypeError');
+  const e2 = run('def g(a):\n    return a\ng(1, b=2)').r;
+  assert.ok(e2.s === 'error' && /parámetro llamado 'b'/.test(e2.msg));
+});

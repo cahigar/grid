@@ -1,3 +1,4 @@
+import { soundButton } from './audio';
 // Interfaz del juego: HUD, panel de unidad, editor, manual, ranking, informes.
 import { API } from '../sim/api';
 import { checkSyntax } from '../sim/lang/compiler';
@@ -167,6 +168,7 @@ export class App {
           <button data-s="1" class="on">1×</button><button data-s="10">10×</button><button data-s="60">60×</button>
         </div>
         <button class="tb-btn" id="btn-rank" title="Ranking diario (R)">${ICON.trophy}<span class="lbl">Ranking</span></button>
+        <span id="snd-slot"></span>
         <button class="tb-btn" id="btn-set" title="Ajustes">${ICON.gear}</button>
         <button class="tb-btn primary" id="btn-code" title="Editor de código (E)">${ICON.code}<span class="lbl">Código</span><span class="kbd">E</span></button>
       </header>
@@ -213,6 +215,7 @@ export class App {
       <div id="tileinfo"></div>
       <div id="toasts"></div>
       <div id="modal-root"></div>`;
+    $('#snd-slot').replaceWith(soundButton());
     if (this.be.kind !== 'practica') $('#speed').style.display = 'none';
     if (this.opts.hideSettings || this.be.kind === 'host' || this.be.kind === 'alumno') $('#btn-set').style.display = 'none';
     $('#resbar').innerHTML = RES_KINDS.map((k) => `<div class="res" id="res-${k}" title="${RESOURCES[k].label}">${resIcon(k)}<span class="n">0</span></div>`).join('');

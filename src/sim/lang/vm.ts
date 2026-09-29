@@ -5,6 +5,7 @@ import { PySyntaxError } from './lexer';
 import {
   binop, compare, delItem, formatValue, getItem, getIter, inplace, iterNext, setItem, slice, unary,
 } from './ops';
+import { iterToArray } from './ops';
 import {
   BoundMethod, Builtin, Env, EXC_TYPES, ExcObj, ExcType, Iter, ModuleObj, PyBound, PyClass, PyDict, PyError, PyFunc,
   PyInstance, PySet, PyRecord, Tuple, err, pyRepr, pyStr, truthy, typeName, type Value,
@@ -314,6 +315,28 @@ export class VM implements VMApi {
           kwn.forEach((k, i) => (kw[k] = kwv[i]));
           return this.invoke(f, fn, args, kw, sync);
         }
+        case Op.ARG_APPEND: { const v = st.pop()!; (st[st.length - 1] as Value[]).push(v); break; }
+        case Op.ARG_EXTEND: { const it = st.pop()!; (st[st.length - 1] as Value[]).push(...iterToArray(it)); break; }
+        case Op.KW_SET: { const v = st.pop()!; const k = st.pop()!; (st[st.length - 1] as PyDict).set(k, v); break; }
+        case Op.KW_UPDATE: {
+          const m = st.pop()!;
+          if (!(m instanceof PyDict)) err('TypeError', '** necesita un diccionario');
+          const d = st[st.length - 1] as PyDict;
+          for (const k of (m as PyDict).keys()) {
+            if (typeof k !== 'string') err('TypeError', 'con ** las claves del diccionario tienen que ser textos');
+            if (d.has(k)) err('TypeError', `el argumento '${k}' aparece dos veces`);
+            d.set(k, (m as PyDict).get(k)!);
+          }
+          break;
+        }
+        case Op.CALL_EX: {
+          const d = st.pop() as PyDict;
+          const args = st.pop() as Value[];
+          const fn = st.pop()!;
+          const kw: Record<string, Value> = {};
+          for (const k of d.keys()) kw[k as string] = d.get(k)!;
+          return this.invoke(f, fn, args, kw, sync);
+        }
         case Op.CALL_METHOD: {
           const [name, n, kwn] = arg as [string, number, string[]];
           const kwv = st.splice(st.length - kwn.length, kwn.length);
@@ -586,7 +609,7 @@ export class VM implements VMApi {
   makeFuncFrame(fn: PyFunc, args: Value[], kw: Record<string, Value>): Frame {
     const code = this.compiledFor(fn.code.mod).codes[fn.code.idx];
     const params = code.params;
-    if (args.length > params.length) {
+    if (args.length > params.length && !code.varargs) {
       err('TypeError', `${fn.name}() recibe ${params.length} argumento${params.length === 1 ? '' : 's'}, pero se le pasaron ${args.length}`);
     }
     const env = new Env(fn.env);
@@ -602,7 +625,24 @@ export class VM implements VMApi {
       else err('TypeError', `a ${fn.name}() le falta el argumento '${p}'`);
       env.vars.set(p, v as Value);
     }
-    for (const k in kw) if (!params.includes(k)) err('TypeError', `${fn.name}() no tiene ningún parámetro llamado '${k}'`);
+    if (code.varargs) env.vars.set(code.varargs, new Tuple(args.slice(params.length)));
+    const kwonly = code.kwonly ?? [];
+    const kwdefs = code.kwdefaults ?? [];
+    kwonly.forEach((p) => {
+      if (p in kw) env.vars.set(p, kw[p]);
+      else {
+        const di = kwdefs.indexOf(p);
+        if (di < 0) err('TypeError', `a ${fn.name}() le falta el argumento con nombre '${p}'`);
+        env.vars.set(p, fn.defaults[code.ndefaults + di]);
+      }
+    });
+    const extra = new PyDict();
+    for (const k in kw) {
+      if (params.includes(k) || kwonly.includes(k)) continue;
+      if (!code.varkw) err('TypeError', `${fn.name}() no tiene ningún parámetro llamado '${k}'`);
+      extra.set(k, kw[k]);
+    }
+    if (code.varkw) env.vars.set(code.varkw, extra);
     const nf = this.newFrame(fn.code.mod, fn.code.idx, env, fn.globals);
     return nf;
   }

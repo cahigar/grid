@@ -17,12 +17,18 @@ export enum Op {
   IMPORT, IMPORT_FROM, IMPORT_STAR,
   ASSERT_FAIL,
   MAKE_CLASS,
+  ARG_APPEND, ARG_EXTEND, KW_SET, KW_UPDATE, CALL_EX,
 }
 
 export interface Code {
   name: string;
   params: string[];
   ndefaults: number;
+  varargs?: string | null;
+  varkw?: string | null;
+  kwonly?: string[];
+  /** cuántos de los parámetros sólo-por-nombre tienen valor por defecto (van al final de defaults) */
+  kwdefaults?: string[];
   ops: Op[];
   args: unknown[];
   lines: number[];
@@ -127,8 +133,15 @@ class Compiler {
 
   // ───── funciones ─────
   func(name: string, params: Param[], body: Stmt[] | Expr, doc: string | null, line: number): void {
-    for (const p of params) if (p.def) this.expr(p.def);
-    const code = this.newCode(name, params.map((p) => p.name), params.filter((p) => p.def).length, true, doc);
+    const regular = params.filter((p) => !p.kind);
+    const kwonly = params.filter((p) => p.kind === 'kwonly');
+    for (const p of regular) if (p.def) this.expr(p.def);
+    for (const p of kwonly) if (p.def) this.expr(p.def);
+    const code = this.newCode(name, regular.map((p) => p.name), regular.filter((p) => p.def).length, true, doc);
+    code.varargs = params.find((p) => p.kind === 'args')?.name ?? null;
+    code.varkw = params.find((p) => p.kind === 'kwargs')?.name ?? null;
+    code.kwonly = kwonly.map((p) => p.name);
+    code.kwdefaults = kwonly.filter((p) => p.def).map((p) => p.name);
     const idx = this.codes.length - 1;
     const outer = this.ctx;
     const globals = new Set<string>();
@@ -479,6 +492,21 @@ class Compiler {
       }
       case 'call': {
         const kw = e.kwargs.map((k) => k.name);
+        if (e.args.some((a) => a.k === 'star') || kw.includes('**')) {
+          // llamada con desempaquetado: f(*lista, **dic)
+          this.expr(e.fn);
+          this.emit(Op.BUILD_LIST, 0);
+          for (const a of e.args) {
+            if (a.k === 'star') { this.expr(a.e); this.emit(Op.ARG_EXTEND); } else { this.expr(a); this.emit(Op.ARG_APPEND); }
+          }
+          this.emit(Op.BUILD_DICT, 0);
+          for (const k of e.kwargs) {
+            if (k.name === '**') { this.expr(k.value); this.emit(Op.KW_UPDATE); } else { this.emit(Op.CONST, k.name); this.expr(k.value); this.emit(Op.KW_SET); }
+          }
+          this.line = e.line;
+          this.emit(Op.CALL_EX);
+          break;
+        }
         if (e.fn.k === 'attr') {
           this.expr(e.fn.obj);
           for (const a of e.args) this.expr(a);
