@@ -45,6 +45,7 @@ export interface ScreenInfo {
   qr: HTMLImageElement | null;
   banner: { name: string; text: string } | null;
   online: number;
+  timer?: { left: number; total: number; label: string; paused: boolean } | null;
 }
 
 // ───────────── paletas ─────────────
@@ -529,6 +530,81 @@ function holoScreen(c: CanvasRenderingContext2D, t: number, s: ScreenInfo): void
   c.fillStyle = '#f2a93b';
   c.font = '600 22px "JetBrains Mono", monospace';
   c.fillText(`${String(d.getHours()).padStart(2, '0')}${d.getSeconds() % 2 ? ':' : ' '}${String(d.getMinutes()).padStart(2, '0')}`, x + w - 30, y + 148);
+}
+
+/** pantalla del temporizador, a la derecha de la pizarra (aparece al ponerlo) */
+let timerShownAt = -1;
+function timerScreen(c: CanvasRenderingContext2D, t: number, nowMs: number, tm: ScreenInfo['timer']): void {
+  if (!tm) { timerShownAt = -1; return; }
+  if (timerShownAt < 0) timerShownAt = nowMs;
+  const on = Math.min(1, (nowMs - timerShownAt) / 450);
+  const x = 1740, y = 26, w = 420, h = 168;
+  const left = tm.left;
+  const frac = tm.total > 0 ? Math.max(0, Math.min(1, left / tm.total)) : 0;
+  const done = left <= 0;
+  const urgent = !done && left <= 60_000;
+  const col = done ? '#ff6b5a' : urgent ? '#ff8a5a' : frac < 0.25 ? '#f2a93b' : '#2fd4c0';
+  const flash = done ? (Math.floor(t * 3) % 2 === 0 ? 1 : 0.35) : urgent ? 0.6 + 0.4 * Math.abs(Math.sin(t * 4)) : 1;
+  c.save();
+  // encendido: se despliega en vertical
+  c.translate(x + w / 2, y + h / 2);
+  c.scale(1, 0.05 + 0.95 * on);
+  c.translate(-(x + w / 2), -(y + h / 2));
+  c.fillStyle = '#0c1a1d';
+  rr(c, x - 10, y - 8, w + 20, h + 16, 18); c.fill();
+  c.strokeStyle = col;
+  c.lineWidth = 3;
+  c.stroke();
+  const g = c.createLinearGradient(0, y, 0, y + h);
+  g.addColorStop(0, 'rgba(16,40,44,0.97)');
+  g.addColorStop(1, 'rgba(8,24,28,0.97)');
+  c.fillStyle = g;
+  rr(c, x, y, w, h, 12); c.fill();
+  c.fillStyle = 'rgba(95,232,255,0.05)';
+  for (let ly = y + ((t * 30) % 6); ly < y + h; ly += 6) c.fillRect(x, ly, w, 1.5);
+  // anillo de progreso
+  const cx = x + 84, cy = y + h / 2, r = 58;
+  c.lineCap = 'round';
+  c.strokeStyle = 'rgba(255,255,255,0.08)';
+  c.lineWidth = 12;
+  c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.stroke();
+  c.strokeStyle = col;
+  c.shadowColor = col;
+  c.shadowBlur = 14;
+  c.beginPath(); c.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); c.stroke();
+  c.shadowBlur = 0;
+  c.lineCap = 'butt';
+  // reloj de arena / icono
+  c.fillStyle = col;
+  c.font = '34px sans-serif';
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.fillText(done ? '⏰' : tm.paused ? '❚❚' : '⏳', cx, cy + 2);
+  // texto
+  const tx = x + 170;
+  c.textAlign = 'left';
+  c.textBaseline = 'alphabetic';
+  c.fillStyle = '#8aa6a1';
+  c.font = '600 18px "JetBrains Mono", monospace';
+  c.fillText((tm.label || 'TEMPORIZADOR').toUpperCase().slice(0, 22), tx, y + 40);
+  const secs = Math.ceil(left / 1000);
+  const mm = Math.floor(secs / 60);
+  const ss = secs % 60;
+  const txt = done ? '¡TIEMPO!' : mm >= 60 ? `${Math.floor(mm / 60)}:${String(mm % 60).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  c.globalAlpha = done || urgent ? flash : 1;
+  c.fillStyle = col;
+  c.shadowColor = col;
+  c.shadowBlur = 20;
+  c.font = `700 ${done ? 46 : mm >= 60 ? 58 : 82}px "JetBrains Mono", monospace`;
+  c.fillText(txt, tx - 4, y + 118);
+  c.shadowBlur = 0;
+  c.globalAlpha = 1;
+  if (tm.paused && !done) {
+    c.fillStyle = '#f2a93b';
+    c.font = '600 17px "JetBrains Mono", monospace';
+    c.fillText('EN PAUSA', tx, y + 150);
+  }
+  c.restore();
 }
 
 function danceFloor(c: CanvasRenderingContext2D, t: number, dancers: number): void {
@@ -1128,6 +1204,7 @@ export function draw(cv: HTMLCanvasElement, view: View, nowMs: number, o: DrawOp
   c.imageSmoothingEnabled = true;
   c.drawImage(bg, 0, 0, ROOM_W, ROOM_H);
   holoScreen(c, t, o.screen);
+  timerScreen(c, t, nowMs, o.screen.timer ?? null);
   const dancers = o.avatars.filter((a) => Math.hypot(a.x - DANCE.x, a.y - DANCE.y) < DANCE.r).length;
   danceFloor(c, t, dancers);
   ambient(c, t);

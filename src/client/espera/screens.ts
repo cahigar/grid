@@ -92,6 +92,7 @@ export async function mountWaitHost(code: string, info: RoomInfo): Promise<Clean
           <button class="tb-btn" id="wr-hide" title="Ocultar el panel (para proyectar)">⇥</button>
         </div>
         <div class="wr-code"><span class="mono">${esc(code)}</span><button class="link-btn" id="wr-copy">copiar enlace</button></div>
+        <div class="wr-timer" id="wr-timer"></div>
         <div class="wr-tabs">
           <button data-tab="cola">✋ Cola <span id="n-cola" class="n"></span></button>
           <button data-tab="chat">💬 Chat <span id="n-chat" class="n"></span></button>
@@ -203,6 +204,54 @@ export async function mountWaitHost(code: string, info: RoomInfo): Promise<Clean
     side.querySelectorAll<HTMLElement>('[data-ago]').forEach((e) => { e.textContent = ago(now - (host.handAt.get(e.dataset.ago!) ?? now)); });
   };
 
+  // ── temporizador ──
+  const tbox = $('#wr-timer');
+  let timerSig = '';
+  const fmt = (ms: number) => {
+    const s = Math.ceil(ms / 1000);
+    const m = Math.floor(s / 60);
+    return m >= 60 ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  };
+  const renderTimer = () => {
+    const tm = host.timer;
+    const sig = tm ? `on${tm.pausedLeft !== null}${tm.label}` : 'off';
+    if (sig !== timerSig) {
+      timerSig = sig;
+      if (!tm) {
+        tbox.innerHTML = `<div class="hd">⏱ Temporizador</div>
+          <div class="presets">${[1, 3, 5, 10, 15, 20].map((m) => `<button class="btn sm" data-min="${m}">${m}′</button>`).join('')}</div>
+          <form id="t-form" class="t-form"><input id="t-min" type="number" min="0.25" max="180" step="0.25" placeholder="min" aria-label="Minutos"><input id="t-lbl" maxlength="40" placeholder="Para qué (p. ej. Ejercicio 3)" aria-label="Etiqueta"><button class="btn go sm">▶</button></form>`;
+        const start = (min: number) => { if (min > 0) { host.setTimer(min * 60_000, $<HTMLInputElement>('#t-lbl', tbox).value); sound.blip(880); } };
+        tbox.querySelectorAll<HTMLButtonElement>('[data-min]').forEach((b) => { b.onclick = () => start(Number(b.dataset.min)); });
+        $<HTMLFormElement>('#t-form', tbox).onsubmit = (e) => { e.preventDefault(); start(Number($<HTMLInputElement>('#t-min', tbox).value)); };
+      } else {
+        tbox.innerHTML = `<div class="hd">⏱ ${esc(tm.label || 'Temporizador')}</div>
+          <div class="run"><span class="big mono" id="t-left"></span>
+          <button class="btn sm" id="t-pause" title="${tm.pausedLeft !== null ? 'Reanudar' : 'Pausar'}">${tm.pausedLeft !== null ? '▶' : '❚❚'}</button>
+          <button class="btn sm" id="t-minus" title="Quitar 1 minuto">−1′</button>
+          <button class="btn sm" id="t-plus" title="Añadir 1 minuto">+1′</button>
+          <button class="btn sm danger" id="t-stop" title="Quitar el temporizador">✕</button></div>`;
+        $('#t-pause', tbox).onclick = () => host.pauseTimer();
+        $('#t-plus', tbox).onclick = () => host.addTime(60_000);
+        $('#t-minus', tbox).onclick = () => host.addTime(-60_000);
+        $('#t-stop', tbox).onclick = () => host.clearTimer();
+      }
+    }
+    const l = $('#t-left', tbox);
+    if (l && tm) { const left = host.timerLeft(); l.textContent = left > 0 ? fmt(left) : '¡Tiempo!'; l.classList.toggle('urgent', left <= 60_000); l.classList.toggle('done', left <= 0); }
+  };
+  let lastSec = -1;
+  const timerSounds = () => {
+    const tm = host.timer;
+    if (!tm || tm.pausedLeft !== null) { lastSec = -1; return; }
+    const sec = Math.ceil(host.timerLeft() / 1000);
+    if (sec !== lastSec) {
+      if (lastSec > 0 && sec === 0) sound.timeUp();
+      else if (lastSec > 0 && sec > 0 && sec <= 10) sound.tick(sec <= 3);
+      lastSec = sec;
+    }
+  };
+
   // ── cola en grande sobre el aula ──
   const renderQueue = () => {
     const q = $('#wr-q');
@@ -212,7 +261,7 @@ export async function mountWaitHost(code: string, info: RoomInfo): Promise<Clean
       : '';
   };
 
-  host.onChange = () => { renderSide(); renderQueue(); };
+  host.onChange = () => { renderSide(); renderQueue(); renderTimer(); };
   const origSetHand = host.setHand.bind(host);
   host.setHand = (cid, up, byTeacher = false) => { if (byTeacher && !up && host.hands.includes(cid)) prof.waveAt = performance.now(); origSetHand(cid, up, byTeacher); };
   host.onEvent = (e) => {
@@ -249,13 +298,15 @@ export async function mountWaitHost(code: string, info: RoomInfo): Promise<Clean
 
   const screen = (): ScreenInfo => ({
     code, title: info.title, url: location.host, qr,
-    banner: host.banner ? { name: host.banner.name, text: host.banner.text } : null, online: host.onlineCount(),
+    banner: host.banner ? { name: host.banner.name, text: host.banner.text } : null, online: host.onlineCount(), timer: host.timerMsg(),
   });
 
   let raf = 0;
   let lastSave = 0;
   const loop = (t: number) => {
     host.tick();
+    timerSounds();
+    if (host.timer) renderTimer();
     const { w, h } = sizeCanvas(cv);
     view = fitView(w, h, 8);
     const avatars: AvatarView[] = [];
@@ -279,6 +330,7 @@ export async function mountWaitHost(code: string, info: RoomInfo): Promise<Clean
   const roster = window.setInterval(() => renderSide(), 3000);
   renderSide();
   renderQueue();
+  renderTimer();
   void sideOpen;
 
   return () => {
@@ -303,6 +355,7 @@ export function mountWaitStudent(code: string, info: RoomInfo, j: JoinInfo): Cle
   const t = api.transport(code, 'student', j.cid, j.jt);
   const client = new WaitClient(t, j.cid, j.name);
   const prof = { talkAt: -1e9, waveAt: -1e9 };
+  let studentSec = -1;
   const fx: Fx = newFx();
   // en ordenador se ve el aula entera, como en el proyector (pizarra siempre visible); en móvil la cámara sigue al avatar
   let fitAll = window.innerWidth > 760;
@@ -508,11 +561,17 @@ export function mountWaitStudent(code: string, info: RoomInfo, j: JoinInfo): Cle
     code, title: client.title || info.title, url: location.host, qr: null,
     banner: client.banner ? { name: client.banner.name, text: client.banner.text } : null,
     online: client.people.filter((p) => p[4]).length,
+    timer: client.timer ? { left: client.timerLeft(), total: client.timer.total, label: client.timer.label, paused: client.timer.pausedLeft !== null } : null,
   });
   const loop = (now: number) => {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     client.update(dt, now);
+    if (client.timer && client.timer.pausedLeft === null) {
+      const sec = Math.ceil(client.timerLeft() / 1000);
+      if (studentSec > 0 && sec === 0) sound.timeUp();
+      studentSec = sec;
+    } else studentSec = -1;
     const { w, h } = sizeCanvas(cv);
     const me = client.me;
     view = fitAll || !me ? fitView(w, h, 4) : followView(w, h, me.x, me.y - 60, Math.max(0.42, Math.min(1.1, w / 1300)));

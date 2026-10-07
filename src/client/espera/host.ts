@@ -2,7 +2,7 @@
 import type { Transport } from '../net/transport';
 import {
   DANCE_EMOTE, EMOTES, FLIES, clampToRoom, cleanText, freeSpot, moveInterval, randomSprite, spawnPoint, step,
-  type ChatMsg, type Motion, type Person, type Sprite, type WaitToHost, type WaitToStudent,
+  type ChatMsg, type Motion, type TimerMsg, type Person, type Sprite, type WaitToHost, type WaitToStudent,
 } from './protocol';
 
 export interface Avatar extends Motion {
@@ -42,6 +42,8 @@ export class WaitHost {
   onEvent?: (e: WaitEvent) => void;
   onChange?: () => void;
 
+  /** temporizador: fin (reloj de este navegador) o, si está en pausa, lo que queda */
+  timer: { end: number; total: number; label: string; pausedLeft: number | null } | null = null;
   /** nombre que aparece sobre el avatar del profe y en sus mensajes */
   profName = 'Profe';
 
@@ -53,7 +55,7 @@ export class WaitHost {
 
   snapshot(): string {
     return JSON.stringify({
-      ep: this.ep, seq: this.seq, chat: this.chat, hands: this.hands, filter: this.filter, banned: [...this.banned],
+      ep: this.ep, seq: this.seq, chat: this.chat, hands: this.hands, filter: this.filter, banned: [...this.banned], timer: this.timer,
       av: [...this.avatars.values()].map((a) => [a.cid, a.name, a.sprite, Math.round(a.x), Math.round(a.y), a.muted]),
     });
   }
@@ -67,6 +69,7 @@ export class WaitHost {
       this.chat = s.chat ?? [];
       this.hands = s.hands ?? [];
       this.filter = s.filter ?? true;
+      this.timer = s.timer ?? null;
       this.banned = new Set(s.banned ?? []);
       for (const [cid, name, sprite, x, y, muted] of s.av ?? []) {
         this.avatars.set(cid, this.newAvatar(cid, name, sprite, x, y, 0, muted));
@@ -187,6 +190,53 @@ export class WaitHost {
   }
 
   // ───── acciones del profesor ─────
+
+  // ───── temporizador ─────
+
+  timerLeft(): number {
+    const tm = this.timer;
+    if (!tm) return 0;
+    return Math.max(0, tm.pausedLeft ?? tm.end - this.now());
+  }
+
+  timerMsg(): TimerMsg | null {
+    const tm = this.timer;
+    return tm ? { left: this.timerLeft(), total: tm.total, label: tm.label, paused: tm.pausedLeft !== null } : null;
+  }
+
+  setTimer(ms: number, label = ''): void {
+    ms = Math.max(1000, Math.min(3 * 3600_000, Math.round(ms)));
+    this.timer = { end: this.now() + ms, total: ms, label: cleanText(label, false).slice(0, 40), pausedLeft: null };
+    this.timerChanged();
+  }
+
+  pauseTimer(): void {
+    const tm = this.timer;
+    if (!tm) return;
+    if (tm.pausedLeft === null) tm.pausedLeft = this.timerLeft();
+    else { tm.end = this.now() + tm.pausedLeft; tm.pausedLeft = null; }
+    this.timerChanged();
+  }
+
+  addTime(ms: number): void {
+    const tm = this.timer;
+    if (!tm) return;
+    if (tm.pausedLeft !== null) tm.pausedLeft = Math.max(0, tm.pausedLeft + ms);
+    else tm.end = Math.max(this.now(), tm.end) + ms;
+    tm.total = Math.max(tm.total, this.timerLeft());
+    this.timerChanged();
+  }
+
+  clearTimer(): void {
+    this.timer = null;
+    this.timerChanged();
+  }
+
+  private timerChanged(): void {
+    this.rosterDirty = true;
+    this.lastRoster = 0;
+    this.onChange?.();
+  }
 
   teacherSay(text: string, name = this.profName): void {
     const t = cleanText(text, false);
@@ -318,7 +368,7 @@ export class WaitHost {
       this.rosterDirty = false;
       this.toAll({
         type: 'w-roster', title: this.title, people: this.people(), hands: this.hands,
-        mi: moveInterval(this.onlineCount()), banner: this.banner, prof: this.profName,
+        mi: moveInterval(this.onlineCount()), banner: this.banner, prof: this.profName, timer: this.timerMsg(),
       });
       // la lista de conectados cambia sola con el tiempo (desconexiones): refresca el panel cada tanto
       if (nowMs - before > 3000) this.onChange?.();

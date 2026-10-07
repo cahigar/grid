@@ -269,6 +269,20 @@ class Sound {
     });
   }
 
+  /** temporizador: tic de los últimos segundos */
+  tick(last = false): void { this.play((t, o) => this.note(o, last ? 1319 : 880, t, 0.05, 'square', 0.14)); }
+
+  /** temporizador a cero: alarma de 8 bits */
+  timeUp(): void {
+    this.play((t, o) => {
+      for (let r = 0; r < 3; r++) {
+        const b = t + r * 0.5;
+        [84, 79, 84, 79].forEach((m, i) => this.note(o, Sound.mtof(m), b + i * 0.09, 0.08, 'square', 0.2));
+      }
+      [72, 76, 79, 84].forEach((m, i) => this.note(o, Sound.mtof(m), t + 1.6 + i * 0.1, 0.25, 'triangle', 0.25));
+    });
+  }
+
   /** emote: burbuja que explota */
   pop(): void { this.play((t, o) => this.note(o, 520, t, 0.08, 'sine', 0.25, 2.2)); }
 

@@ -161,6 +161,9 @@ export const AURA_MS = 4800;
 
 // ───────────── mensajes ─────────────
 
+/** temporizador del profe: lo que falta (ms) en el momento de enviarlo */
+export interface TimerMsg { left: number; total: number; label: string; paused: boolean }
+
 export interface ChatMsg { id: number; cid: string; name: string; text: string; at: number; t?: boolean }
 
 /** [cid, nombre, sprite, variante, en línea, silenciado] */
@@ -178,7 +181,7 @@ export type WaitToHost =
 export type WaitToStudent =
   /** posiciones (5 veces por segundo): [cid, x, y, moviéndose] · ep cambia al reiniciar la sala */
   | { type: 'w-state'; ep: number; p: [string, number, number, 0 | 1][] }
-  | { type: 'w-roster'; title: string; people: Person[]; hands: string[]; mi: number; banner: ChatMsg | null; prof?: string }
+  | { type: 'w-roster'; title: string; people: Person[]; hands: string[]; mi: number; banner: ChatMsg | null; prof?: string; timer?: TimerMsg | null }
   | { type: 'w-chat'; m: ChatMsg }
   | { type: 'w-del'; id: number }
   | { type: 'w-clear' }

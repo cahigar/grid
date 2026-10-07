@@ -178,3 +178,33 @@ test('filtro: palabras completas', () => {
   assert.equal(cleanText('mi computadora y la disputa', true), 'mi computadora y la disputa');
   assert.equal(cleanText('idiotas!', true), 'i******!');
 });
+
+test('temporizador del profe: se reparte, se pausa y se ajusta', () => {
+  const bus = new Bus();
+  let clock = 5_000_000;
+  const host = new WaitHost(bus.transport(), 'T1', 'Espera', () => clock);
+  const ana = new WaitClient(bus.transport(), 'ana', 'Ana');
+  ana.hello(); bus.flush();
+  host.setTimer(5 * 60_000, 'Ejercicio 3');
+  host.tick(clock); bus.flush();
+  assert.equal(ana.timer?.label, 'Ejercicio 3');
+  assert.ok(Math.abs(ana.timerLeft() - 5 * 60_000) < 2000);
+  clock += 60_000;
+  assert.equal(host.timerLeft(), 4 * 60_000);
+  host.pauseTimer();
+  clock += 30_000;
+  assert.equal(host.timerLeft(), 4 * 60_000, 'en pausa no corre');
+  host.tick(clock); bus.flush();
+  assert.equal(ana.timer?.pausedLeft, 4 * 60_000);
+  host.pauseTimer();
+  host.addTime(60_000);
+  assert.equal(host.timerLeft(), 5 * 60_000);
+  host.addTime(-10 * 60_000);
+  assert.equal(host.timerLeft(), 0);
+  const snap = new WaitHost(bus.transport(), 'T1', 'Espera', () => clock);
+  snap.restore(host.snapshot());
+  assert.ok(snap.timer);
+  host.clearTimer();
+  host.tick(clock + 300); bus.flush();
+  assert.equal(ana.timer, null);
+});

@@ -20,6 +20,8 @@ export class WaitClient {
   title = '';
   banner: ChatMsg | null = null;
   prof = 'Profe';
+  /** temporizador en el reloj de este dispositivo */
+  timer: { end: number; total: number; label: string; pausedLeft: number | null } | null = null;
   remotes = new Map<string, Remote>();
   lastMsgAt = 0;
   private mi = 200;
@@ -86,6 +88,7 @@ export class WaitClient {
         this.title = m.title;
         this.banner = m.banner;
         if (m.prof) this.prof = m.prof;
+        this.syncTimer(m.timer ?? null);
         this.mi = Math.max(moveInterval(1), m.mi);
         this.onRoster?.();
         break;
@@ -110,6 +113,23 @@ export class WaitClient {
       case 'w-kick': this.onKick?.(m.reason); break;
       case 'w-close': this.onClose?.(); break;
     }
+  }
+
+  private syncTimer(tm: import('./protocol').TimerMsg | null): void {
+    if (!tm) { this.timer = null; return; }
+    const now = Date.now();
+    if (tm.paused) { this.timer = { end: now + tm.left, total: tm.total, label: tm.label, pausedLeft: tm.left }; return; }
+    const end = now + tm.left;
+    const cur = this.timer;
+    // sólo corrige si se ha desviado (evita saltitos por la latencia)
+    if (!cur || cur.pausedLeft !== null || cur.label !== tm.label || cur.total !== tm.total || Math.abs(cur.end - end) > 1200) {
+      this.timer = { end, total: tm.total, label: tm.label, pausedLeft: null };
+    }
+  }
+
+  timerLeft(): number {
+    const tm = this.timer;
+    return tm ? Math.max(0, tm.pausedLeft ?? tm.end - Date.now()) : 0;
   }
 
   // ───── entrada ─────
