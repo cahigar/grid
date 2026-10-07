@@ -1,6 +1,6 @@
 // Sala de espera — dibujo del aula futurista (Canvas 2D, todo procedural) y de los avatares.
 import {
-  AURA_MS, DANCE, DOOR, OBSTACLES, ROOM_H, ROOM_W, WALL_BOTTOM, WALL_SIDE, WALL_TOP, EMOTES, type Box, type SpriteKind,
+  AURA_MS, DANCE, DOOR, OBSTACLES, TEACHER, ROOM_H, ROOM_W, WALL_BOTTOM, WALL_SIDE, WALL_TOP, EMOTES, type Box, type SpriteKind,
 } from './protocol';
 
 export interface View { scale: number; ox: number; oy: number }
@@ -815,6 +815,150 @@ function tree(c: CanvasRenderingContext2D, a: AvatarView, t: number, dir: number
   c.fillText(k < 0.5 ? '♪' : '♫', a.x + 24 + Math.sin(k * 6) * 6, a.y - 70 - k * 40);
 }
 
+// ───────────── el profe ─────────────
+
+function professor(c: CanvasRenderingContext2D, T: TeacherView, t: number, nowMs: number): void {
+  const talk = nowMs - T.talkAt;
+  const wave = nowMs - T.waveAt;
+  const talking = talk >= 0 && talk < 3500;
+  const waving = wave >= 0 && wave < 2200;
+  const lookDir = T.look ? Math.max(-1, Math.min(1, (T.look.x - TEACHER.x) / 500)) : Math.sin(t * 0.35) * 0.6;
+  const S = SPR * 1.18;
+  c.save();
+  c.translate(TEACHER.x, TEACHER.y);
+  c.scale(S, S);
+  const bob = Math.sin(t * 1.8) * 1.2;
+  // sombra y halo de «profe»
+  const halo = c.createRadialGradient(0, -40, 4, 0, -40, 70);
+  halo.addColorStop(0, 'rgba(242,169,59,0.22)');
+  halo.addColorStop(1, 'rgba(242,169,59,0)');
+  c.fillStyle = halo;
+  c.beginPath(); c.arc(0, -40, 70, 0, Math.PI * 2); c.fill();
+  c.translate(0, -bob);
+  // bata blanca
+  c.fillStyle = '#f3f7f7';
+  c.beginPath();
+  c.moveTo(-20, -52); c.lineTo(20, -52); c.lineTo(26, 0); c.lineTo(-26, 0); c.closePath(); c.fill();
+  c.fillStyle = '#2a4a4e';
+  c.beginPath(); c.moveTo(-6, -52); c.lineTo(6, -52); c.lineTo(4, 0); c.lineTo(-4, 0); c.closePath(); c.fill();
+  // corbata ámbar
+  c.fillStyle = '#f2a93b';
+  c.beginPath(); c.moveTo(-3, -50); c.lineTo(3, -50); c.lineTo(4, -30); c.lineTo(0, -25); c.lineTo(-4, -30); c.closePath(); c.fill();
+  // solapas y bolsillo con boli
+  c.strokeStyle = '#c9d6d8';
+  c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(-6, -52); c.lineTo(-12, -36); c.moveTo(6, -52); c.lineTo(12, -36); c.stroke();
+  c.fillStyle = '#d7e2e3'; c.fillRect(10, -34, 8, 6);
+  c.fillStyle = '#2fd4c0'; c.fillRect(12, -39, 2, 7);
+  // brazo izquierdo con la tableta holográfica
+  c.fillStyle = '#f3f7f7';
+  rr(c, -27, -50, 8, 24, 4); c.fill();
+  const tabY = -30 + Math.sin(t * 2.2) * 1.5;
+  c.fillStyle = 'rgba(47,212,192,0.3)';
+  rr(c, -46, tabY - 14, 26, 18, 3); c.fill();
+  c.strokeStyle = 'rgba(95,232,255,0.9)';
+  c.lineWidth = 1.2;
+  c.stroke();
+  c.fillStyle = 'rgba(210,255,250,0.85)';
+  const wl = ((t * 0.5) % 1) * 16;
+  c.fillRect(-42, tabY - 10, 14, 1.6);
+  c.fillRect(-42, tabY - 6, 10, 1.6);
+  c.fillRect(-42, tabY - 2, wl, 1.6);
+  // brazo derecho: señala la pizarra al hablar, saluda al atender
+  c.save();
+  c.translate(22, -48);
+  let ang = 0.15 + Math.sin(t * 1.3) * 0.05;
+  if (talking) ang = -2.5 + Math.sin(talk / 140) * 0.12;
+  if (waving) ang = -2.7 + Math.sin(wave / 90) * 0.45;
+  c.rotate(ang);
+  c.fillStyle = '#f3f7f7';
+  rr(c, -4, 0, 8, 24, 4); c.fill();
+  c.fillStyle = '#c9d6d8';
+  c.beginPath(); c.arc(0, 26, 4.5, 0, Math.PI * 2); c.fill();
+  if (talking) { c.strokeStyle = '#f2a93b'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, 28); c.lineTo(0, 42); c.stroke(); c.fillStyle = '#ffd34d'; c.beginPath(); c.arc(0, 43, 2.5, 0, Math.PI * 2); c.fill(); }
+  c.restore();
+  // cabeza
+  c.save();
+  c.translate(0, -66);
+  c.rotate(lookDir * 0.12);
+  c.fillStyle = '#d5e0e1';
+  rr(c, -18, -16, 36, 30, 12); c.fill();
+  c.fillStyle = '#b8c7c9';
+  rr(c, -18, 6, 36, 8, 5); c.fill();
+  // pantalla-cara
+  c.fillStyle = '#0d1a1d';
+  rr(c, -14, -11, 28, 18, 7); c.fill();
+  const ex = lookDir * 3;
+  const blink = (t % 5) < 0.12;
+  c.fillStyle = '#ffd34d';
+  c.shadowColor = '#ffd34d';
+  c.shadowBlur = 8;
+  if (blink) { c.fillRect(-9 + ex, -3, 7, 1.6); c.fillRect(3 + ex, -3, 7, 1.6); }
+  else { c.beginPath(); c.arc(-5 + ex, -2, 2.6, 0, Math.PI * 2); c.arc(6 + ex, -2, 2.6, 0, Math.PI * 2); c.fill(); }
+  c.shadowBlur = 0;
+  // gafas
+  c.strokeStyle = '#f2a93b';
+  c.lineWidth = 1.6;
+  c.beginPath(); c.arc(-5 + ex, -2, 5.5, 0, Math.PI * 2); c.stroke();
+  c.beginPath(); c.arc(6 + ex, -2, 5.5, 0, Math.PI * 2); c.stroke();
+  c.beginPath(); c.moveTo(0.5 + ex - 0.1, -3); c.lineTo(0.6 + ex, -3); c.stroke();
+  // boca: habla
+  c.fillStyle = '#ffd34d';
+  const mouth = talking ? 1.5 + Math.abs(Math.sin(talk / 70)) * 3 : 1.2;
+  rr(c, -4 + ex, 3, 8, mouth, 1); c.fill();
+  // auriculares con micro
+  c.fillStyle = '#2a4245';
+  rr(c, -21, -8, 5, 12, 2); c.fill();
+  rr(c, 16, -8, 5, 12, 2); c.fill();
+  c.strokeStyle = '#2a4245';
+  c.lineWidth = 2;
+  c.beginPath(); c.arc(0, -10, 19, Math.PI * 1.05, Math.PI * 1.95); c.stroke();
+  c.beginPath(); c.moveTo(-19, 2); c.quadraticCurveTo(-16, 12, -6, 10); c.stroke();
+  c.fillStyle = talking ? '#ff6b5a' : '#5b6f72';
+  c.beginPath(); c.arc(-6, 10, 2.2, 0, Math.PI * 2); c.fill();
+  // antena con estrella
+  c.strokeStyle = '#c9d6d8';
+  c.lineWidth = 2;
+  c.beginPath(); c.moveTo(0, -16); c.lineTo(0, -26); c.stroke();
+  c.fillStyle = '#ffd34d';
+  c.save();
+  c.translate(0, -29);
+  c.rotate(t * 1.5);
+  c.beginPath();
+  for (let i = 0; i < 10; i++) { const r = i % 2 ? 2.4 : 5.5; const a = (i / 10) * Math.PI * 2; c.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+  c.closePath(); c.fill();
+  c.restore();
+  c.restore();
+  c.restore();
+}
+
+/** taza de café humeante y teclado sobre la mesa del profe */
+function deskProps(c: CanvasRenderingContext2D, o: Box, t: number): void {
+  const mx = o.x + o.w - 70;
+  const my = o.y + 22;
+  c.fillStyle = '#f2a93b';
+  rr(c, mx - 9, my - 10, 18, 18, 4); c.fill();
+  c.strokeStyle = '#f2a93b';
+  c.lineWidth = 3;
+  c.beginPath(); c.arc(mx + 11, my - 1, 5, -Math.PI / 2, Math.PI / 2); c.stroke();
+  c.fillStyle = '#4a2a14';
+  c.beginPath(); c.ellipse(mx, my - 9, 7, 3, 0, 0, Math.PI * 2); c.fill();
+  for (let i = 0; i < 3; i++) {
+    const k = (t * 0.6 + i / 3) % 1;
+    c.strokeStyle = `rgba(255,255,255,${(0.35 * (1 - k)).toFixed(3)})`;
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(mx - 3 + i * 3, my - 12 - k * 4);
+    c.quadraticCurveTo(mx + 4 + i * 3 + Math.sin(t * 3 + i) * 4, my - 20 - k * 14, mx - 2 + i * 3, my - 26 - k * 20);
+    c.stroke();
+  }
+  // teclado holográfico
+  c.fillStyle = 'rgba(47,212,192,0.25)';
+  rr(c, o.x + 60, o.y + 14, 80, 22, 4); c.fill();
+  c.fillStyle = 'rgba(95,232,255,0.7)';
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 8; j++) if (Math.sin(t * 6 + i * 3 + j) > 0.85) c.fillRect(o.x + 64 + j * 9.5, o.y + 17 + i * 6.5, 7, 4);
+}
+
 // ───────────── aura («farmear aura») ─────────────
 
 /** intensidad 0..1: entra rápido, se mantiene y se apaga */
@@ -932,7 +1076,19 @@ function auraFront(c: CanvasRenderingContext2D, a: AvatarView, t: number, e: num
 
 // ───────────── dibujo completo ─────────────
 
+/** el profe: avatar único y fijo tras su mesa */
+export interface TeacherView {
+  name: string;
+  /** cuándo habló por última vez (ms, reloj de performance) → señala la pizarra */
+  talkAt: number;
+  /** cuándo atendió a alguien → saluda */
+  waveAt: number;
+  /** hacia dónde mira (el primero de la cola) */
+  look: { x: number; y: number } | null;
+}
+
 export interface DrawOpts {
+  teacher?: TeacherView;
   avatars: AvatarView[];
   fx: Fx;
   screen: ScreenInfo;
@@ -1005,6 +1161,14 @@ export function draw(cv: HTMLCanvasElement, view: View, nowMs: number, o: DrawOp
     }
   }
 
+  // el profe, tras su mesa (la mesa se vuelve a pintar delante para taparle las piernas)
+  if (o.teacher) {
+    professor(c, o.teacher, t, nowMs);
+    const desk = OBSTACLES.find((b) => b.kind === 'console')!;
+    consoleDesk(c, desk);
+    deskProps(c, desk, t);
+  }
+
   // avatares, de atrás hacia delante
   const sorted = [...o.avatars].sort((p, q) => p.y - q.y);
   for (const a of sorted) {
@@ -1035,6 +1199,35 @@ export function draw(cv: HTMLCanvasElement, view: View, nowMs: number, o: DrawOp
   // ── capa de etiquetas en píxeles de pantalla (legibles en el proyector) ──
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   const ls = o.labelScale ?? 1;
+  if (o.teacher) {
+    const T = o.teacher;
+    const sx = TEACHER.x * view.scale + view.ox;
+    // placa con el nombre delante de la mesa (arriba taparía la pizarra)
+    const sy = (TEACHER.y + 84) * view.scale + view.oy;
+    c.font = `700 ${Math.round(14 * ls)}px "Space Grotesk", sans-serif`;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    const label = `★ ${T.name}`;
+    const tw = c.measureText(label).width + 18 * ls;
+    const g = c.createLinearGradient(sx - tw / 2, 0, sx + tw / 2, 0);
+    g.addColorStop(0, '#f2a93b');
+    g.addColorStop(1, '#ffd34d');
+    c.fillStyle = g;
+    c.shadowColor = 'rgba(242,169,59,0.7)';
+    c.shadowBlur = 12;
+    rr(c, sx - tw / 2, sy - 12 * ls, tw, 24 * ls, 12 * ls); c.fill();
+    c.shadowBlur = 0;
+    c.fillStyle = '#1d1204';
+    c.fillText(label, sx, sy + 0.5);
+    const since = nowMs - T.talkAt;
+    if (since >= 0 && since < 4000) {
+      const k = since / 4000;
+      c.globalAlpha = k > 0.8 ? (1 - k) / 0.2 : 1;
+      c.font = `${Math.round(28 * ls)}px sans-serif`;
+      c.fillText('📢', sx + tw / 2 + 18 * ls, sy - 6 * ls - Math.sin(since / 120) * 3 * ls);
+      c.globalAlpha = 1;
+    }
+  }
   const head = (a: AvatarView) => SPR * (a.k === 'drone' ? 64 : a.k === 'rc' ? 40 : a.k === 'tree' ? 92 : 84);
   for (const a of sorted) {
     const sx = a.x * view.scale + view.ox;

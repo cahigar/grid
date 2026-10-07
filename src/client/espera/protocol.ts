@@ -11,7 +11,7 @@ export const WALL_BOTTOM = 52;
 export const RADIUS = 24;
 
 export interface Box { x: number; y: number; w: number; h: number; kind: ObstacleKind; fly?: boolean }
-export type ObstacleKind = 'desk' | 'console' | 'planter' | 'pond' | 'rack' | 'pillar';
+export type ObstacleKind = 'desk' | 'console' | 'planter' | 'pond' | 'rack' | 'pillar' | 'spot';
 
 function desks(): Box[] {
   const out: Box[] = [];
@@ -25,6 +25,8 @@ function desks(): Box[] {
 export const OBSTACLES: Box[] = [
   ...desks().map((d) => ({ ...d, fly: true })),
   { x: 1020, y: 330, w: 360, h: 70, kind: 'console', fly: true },
+  // detrás de la mesa del profe: sólo para el profe (no se dibuja)
+  { x: 1020, y: WALL_TOP, w: 360, h: 330 - WALL_TOP, kind: 'spot', fly: true },
   { x: 64, y: 250, w: 120, h: 120, kind: 'planter', fly: true },
   { x: ROOM_W - 184, y: 250, w: 120, h: 120, kind: 'planter', fly: true },
   { x: 64, y: ROOM_H - 190, w: 120, h: 120, kind: 'planter', fly: true },
@@ -44,6 +46,8 @@ export const OBSTACLES: Box[] = [
 /** pista de baile holográfica (centro del aula) */
 export const DANCE = { x: 1200, y: 790, r: 150 };
 export const DOOR = { x: 1200, y: ROOM_H - 110 };
+/** el profe, de pie tras su mesa */
+export const TEACHER = { x: 1200, y: 336 };
 
 // ───────────── avatares ─────────────
 
@@ -76,8 +80,8 @@ export interface Motion {
 function blocked(x: number, y: number, fly: boolean): boolean {
   const r = RADIUS;
   if (x < WALL_SIDE + r || x > ROOM_W - WALL_SIDE - r || y < WALL_TOP + r || y > ROOM_H - WALL_BOTTOM - r) return true;
-  if (fly) return false;
   for (const o of OBSTACLES) {
+    if (fly && o.kind !== 'spot') continue;
     if (x > o.x - r && x < o.x + o.w + r && y > o.y - r && y < o.y + o.h + r) return true;
   }
   return false;
@@ -174,7 +178,7 @@ export type WaitToHost =
 export type WaitToStudent =
   /** posiciones (5 veces por segundo): [cid, x, y, moviéndose] · ep cambia al reiniciar la sala */
   | { type: 'w-state'; ep: number; p: [string, number, number, 0 | 1][] }
-  | { type: 'w-roster'; title: string; people: Person[]; hands: string[]; mi: number; banner: ChatMsg | null }
+  | { type: 'w-roster'; title: string; people: Person[]; hands: string[]; mi: number; banner: ChatMsg | null; prof?: string }
   | { type: 'w-chat'; m: ChatMsg }
   | { type: 'w-del'; id: number }
   | { type: 'w-clear' }

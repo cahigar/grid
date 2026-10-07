@@ -68,7 +68,9 @@ export async function mountWaitHost(code: string, info: RoomInfo): Promise<Clean
   const qrSrc = await QRCode.toDataURL(joinUrl, { margin: 1, width: 320, color: { dark: '#0b1416', light: '#ffffff' } });
   const qr = loadImg(qrSrc);
   const host = new WaitHost(api.transport(code, 'host', `profe${api.me.id}`), code, info.title);
+  host.profName = `Profe ${(api.me.name ?? '').trim().split(/\s+/)[0] ?? ''}`.trim().slice(0, 22);
   const saveKey = `grid.espera.${code}`;
+  const prof = { talkAt: -1e9, waveAt: -1e9 };
   try { host.restore(sessionStorage.getItem(saveKey)); } catch { /* nada */ }
   const fx: Fx = newFx();
   let tab: 'cola' | 'chat' | 'alumnos' = 'cola';
@@ -211,11 +213,16 @@ export async function mountWaitHost(code: string, info: RoomInfo): Promise<Clean
   };
 
   host.onChange = () => { renderSide(); renderQueue(); };
+  const origSetHand = host.setHand.bind(host);
+  host.setHand = (cid, up, byTeacher = false) => { if (byTeacher && !up && host.hands.includes(cid)) prof.waveAt = performance.now(); origSetHand(cid, up, byTeacher); };
   host.onEvent = (e) => {
     const now = performance.now();
     if (e.kind === 'hand') { sound.hand(); }
     else if (e.kind === 'join') { fx.joins.set(e.cid, now); sound.join(); }
-    else if (e.kind === 'chat' && e.m) { fx.bubbles.set(e.cid, { text: e.m.text, at: now, t: e.m.t }); if (!e.m.t) sound.chat(); }
+    else if (e.kind === 'chat' && e.m) {
+      if (e.m.t) prof.talkAt = now;
+      else { fx.bubbles.set(e.cid, { text: e.m.text, at: now }); sound.chat(); }
+    }
     else if (e.kind === 'emote' && e.e !== undefined) {
       fx.emotes.set(e.cid, { e: e.e, at: now });
       if (e.e === DANCE_EMOTE) fx.dance.set(e.cid, now + 3600);
@@ -256,7 +263,9 @@ export async function mountWaitHost(code: string, info: RoomInfo): Promise<Clean
       if (!host.online(a)) continue;
       avatars.push({ cid: a.cid, name: a.name, k: a.sprite.k, v: a.sprite.v, x: a.x, y: a.y, moving: a.moving, hand: host.hands.indexOf(a.cid) + 1, muted: a.muted });
     }
-    draw(cv, view, t, { avatars, fx, screen: screen(), labelScale: Math.max(1, Math.min(1.7, w / 1250)) });
+    const first = host.hands.length ? host.avatars.get(host.hands[0]) : undefined;
+    const teacher = { name: host.profName, talkAt: prof.talkAt, waveAt: prof.waveAt, look: first ? { x: first.x, y: first.y } : null };
+    draw(cv, view, t, { teacher, avatars, fx, screen: screen(), labelScale: Math.max(1, Math.min(1.7, w / 1250)) });
     if (Date.now() - lastSave > 2000) {
       lastSave = Date.now();
       try { sessionStorage.setItem(saveKey, host.snapshot()); } catch { /* nada */ }
@@ -293,8 +302,10 @@ export function mountWaitStudent(code: string, info: RoomInfo, j: JoinInfo): Cle
   const root = $('#app');
   const t = api.transport(code, 'student', j.cid, j.jt);
   const client = new WaitClient(t, j.cid, j.name);
+  const prof = { talkAt: -1e9, waveAt: -1e9 };
   const fx: Fx = newFx();
-  let fitAll = false;
+  // en ordenador se ve el aula entera, como en el proyector (pizarra siempre visible); en móvil la cámara sigue al avatar
+  let fitAll = window.innerWidth > 760;
   let chatOpen = window.innerWidth > 760;
   let unread = 0;
   let ended = false;
@@ -345,6 +356,8 @@ export function mountWaitStudent(code: string, info: RoomInfo, j: JoinInfo): Cle
     sound.setMusicAllowed(musicOn);
     drawMusic();
   };
+  $('#wr-map').classList.toggle('on', fitAll);
+  $('#wr-map').title = 'Ver el aula entera / seguir a mi personaje';
   $('#wr-map').onclick = () => { fitAll = !fitAll; $('#wr-map').classList.toggle('on', fitAll); };
   $('#wr-chatbtn').onclick = () => {
     chatOpen = !chatOpen;
@@ -366,7 +379,8 @@ export function mountWaitStudent(code: string, info: RoomInfo, j: JoinInfo): Cle
     log.querySelector('.empty')?.remove();
     log.insertAdjacentHTML('beforeend', chatLine(m, false));
     if (atBottom || m.cid === j.cid) scrollLog();
-    fx.bubbles.set(m.cid, { text: m.text, at: performance.now(), t: m.t });
+    if (m.t) prof.talkAt = performance.now();
+    else fx.bubbles.set(m.cid, { text: m.text, at: performance.now() });
     if (!chatOpen) { unread++; drawUnread(); }
     if (m.t) sound.chat();
   };
@@ -400,6 +414,7 @@ export function mountWaitStudent(code: string, info: RoomInfo, j: JoinInfo): Cle
   };
   handBtn.onclick = toggleHand;
   client.onHand = (cid, up, by) => {
+    if (!up && by === 'profe') prof.waveAt = performance.now();
     if (cid === j.cid && !up && by === 'profe') { toast('El profe viene a verte 👋', 'ok'); sound.attend(); }
   };
 
@@ -512,7 +527,10 @@ export function mountWaitStudent(code: string, info: RoomInfo, j: JoinInfo): Cle
       const moving = !!(me.dx || me.dy || me.tx !== null);
       avatars.push({ cid: j.cid, name: j.name, k: me.sprite.k, v: me.sprite.v, x: me.x, y: me.y, moving, me: true, hand: client.hands.indexOf(j.cid) + 1 });
     }
-    draw(cv, view, now, { avatars, fx, screen: screen(), target: me && me.tx !== null && me.ty !== null ? { x: me.tx, y: me.ty } : null, labelScale: w < 600 ? 0.9 : 1 });
+    const firstCid = client.hands[0];
+    const fp = firstCid === j.cid ? me : firstCid ? client.remotes.get(firstCid) : undefined;
+    const teacher = { name: client.prof, talkAt: prof.talkAt, waveAt: prof.waveAt, look: fp ? { x: fp.x, y: fp.y } : null };
+    draw(cv, view, now, { teacher, avatars, fx, screen: screen(), target: me && me.tx !== null && me.ty !== null ? { x: me.tx, y: me.ty } : null, labelScale: w < 600 ? 0.9 : 1 });
     raf = requestAnimationFrame(loop);
   };
   raf = requestAnimationFrame(loop);

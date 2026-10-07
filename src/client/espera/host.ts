@@ -42,6 +42,9 @@ export class WaitHost {
   onEvent?: (e: WaitEvent) => void;
   onChange?: () => void;
 
+  /** nombre que aparece sobre el avatar del profe y en sus mensajes */
+  profName = 'Profe';
+
   constructor(public transport: Transport, public code: string, public title: string, private now: () => number = () => Date.now()) {
     this.unsub = transport.listen('host', (m) => this.onMessage(m as WaitToHost));
   }
@@ -185,7 +188,7 @@ export class WaitHost {
 
   // ───── acciones del profesor ─────
 
-  teacherSay(text: string, name = 'Profe'): void {
+  teacherSay(text: string, name = this.profName): void {
     const t = cleanText(text, false);
     if (!t) return;
     const msg: ChatMsg = { id: this.seq++, cid: 'profe', name, text: t, at: this.now(), t: true };
@@ -315,7 +318,7 @@ export class WaitHost {
       this.rosterDirty = false;
       this.toAll({
         type: 'w-roster', title: this.title, people: this.people(), hands: this.hands,
-        mi: moveInterval(this.onlineCount()), banner: this.banner,
+        mi: moveInterval(this.onlineCount()), banner: this.banner, prof: this.profName,
       });
       // la lista de conectados cambia sola con el tiempo (desconexiones): refresca el panel cada tanto
       if (nowMs - before > 3000) this.onChange?.();

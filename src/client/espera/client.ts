@@ -19,6 +19,7 @@ export class WaitClient {
   chat: ChatMsg[] = [];
   title = '';
   banner: ChatMsg | null = null;
+  prof = 'Profe';
   remotes = new Map<string, Remote>();
   lastMsgAt = 0;
   private mi = 200;
@@ -84,6 +85,7 @@ export class WaitClient {
         this.hands = m.hands;
         this.title = m.title;
         this.banner = m.banner;
+        if (m.prof) this.prof = m.prof;
         this.mi = Math.max(moveInterval(1), m.mi);
         this.onRoster?.();
         break;

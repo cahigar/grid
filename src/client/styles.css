@@ -731,3 +731,15 @@ body.ac-full .scr-main.wide { max-width: none; padding: 12px 16px 16px; }
 #newroom .btn { flex: none; }
 .wr-emotes .em.aura { border-color: rgba(255, 211, 77, 0.6); background: radial-gradient(circle, rgba(255, 211, 77, 0.28), rgba(255, 170, 30, 0.06)); box-shadow: 0 0 12px rgba(255, 200, 60, 0.35); }
 .wr-emotes .em.aura:hover { box-shadow: 0 0 20px rgba(255, 200, 60, 0.7); }
+
+/* alumno en ordenador: misma vista que el proyector, sin tapar el aula */
+@media (min-width: 761px) {
+  .wr.student { grid-template-columns: 1fr 330px; grid-template-rows: auto 1fr auto; grid-template-areas: 'top top' 'stage chat' 'dock chat'; gap: 10px; padding: 10px; }
+  .wr.student.nochat { grid-template-columns: 1fr 0; }
+  .wr.student .wr-stage { grid-area: stage; border-radius: 12px; overflow: hidden; }
+  .wr.student .wr-top { grid-area: top; position: static; }
+  .wr.student .wr-chat { grid-area: chat; position: static; width: auto; min-height: 0; }
+  .wr.student .wr-dock { grid-area: dock; position: static; transform: none; width: auto; justify-self: center; width: min(820px, 100%); }
+  .wr.student .wr-queue { top: 12px; }
+  .wr.student .wr-hint { bottom: 12px; }
+}
