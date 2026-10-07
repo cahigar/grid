@@ -2,8 +2,9 @@
 import { AblyTransport, LocalTransport, type Transport } from './transport';
 
 export interface Me { role: 'teacher' | 'student' | null; id?: number; name?: string }
-export interface JoinInfo { code: string; title: string; cid: string; name: string; jt: string }
-export interface RoomInfo { code: string; title: string; open: boolean; created_at?: string }
+export type RoomKind = 'partida' | 'espera';
+export interface JoinInfo { code: string; title: string; cid: string; name: string; jt: string; kind?: RoomKind }
+export interface RoomInfo { code: string; title: string; open: boolean; created_at?: string; kind?: RoomKind }
 export interface LevelProgress { level: number; done: boolean; code: string | null }
 
 class ApiError extends Error {}
@@ -108,11 +109,11 @@ export class Api {
   }
 
   // ───── salas ─────
-  async createRoom(title: string): Promise<RoomInfo> {
-    if (this.mode === 'remote') return this.call<RoomInfo>('/api/rooms', 'POST', { action: 'create', title });
+  async createRoom(title: string, kind: RoomKind = 'partida'): Promise<RoomInfo> {
+    if (this.mode === 'remote') return this.call<RoomInfo>('/api/rooms', 'POST', { action: 'create', title, kind });
     const code = Array.from({ length: 6 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('');
     const rooms = lsGet<RoomInfo[]>('grid.local.rooms', []);
-    const r = { code, title, open: true, created_at: new Date().toISOString() };
+    const r: RoomInfo = { code, title: title || (kind === 'espera' ? 'Sala de espera' : 'Clase'), open: true, created_at: new Date().toISOString(), kind };
     rooms.unshift(r);
     lsSet('grid.local.rooms', rooms.slice(0, 30));
     return r;
@@ -125,7 +126,15 @@ export class Api {
 
   async roomInfo(code: string): Promise<RoomInfo> {
     if (this.mode === 'remote') return this.call<RoomInfo>(`/api/rooms?code=${encodeURIComponent(code)}`);
-    return { code, title: 'Sala local', open: true };
+    const r = lsGet<RoomInfo[]>('grid.local.rooms', []).find((x) => x.code === code);
+    return r ?? { code, title: 'Sala local', open: true, kind: 'partida' };
+  }
+
+  async closeRoom(code: string): Promise<void> {
+    if (this.mode === 'remote') { await this.call('/api/rooms', 'POST', { action: 'close', code }); return; }
+    const rooms = lsGet<RoomInfo[]>('grid.local.rooms', []);
+    const r = rooms.find((x) => x.code === code);
+    if (r) { r.open = false; lsSet('grid.local.rooms', rooms); }
   }
 
   async join(code: string, name: string): Promise<JoinInfo> {

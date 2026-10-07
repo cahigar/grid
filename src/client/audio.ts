@@ -14,6 +14,8 @@ class Sound {
   private step = 0;
   private listeners = new Set<Listener>();
   private unlocked = false;
+  /** pista: «main» (juego) o «calm» (sala de espera: más lenta y suave) */
+  private track: 'main' | 'calm' = 'main';
 
   constructor() {
     try { this.enabled = localStorage.getItem(KEY) !== '0'; } catch { /* nada */ }
@@ -108,8 +110,59 @@ class Sound {
   ];
   private static mtof(m: number): number { return 440 * Math.pow(2, (m - 69) / 12); }
 
+  /** cambia de pista (la sala de espera usa una más tranquila) */
+  setTrack(t: 'main' | 'calm'): void {
+    if (this.track === t) return;
+    this.track = t;
+    this.step = 0;
+    if (this.ctx) this.nextTime = this.ctx.currentTime + 0.15;
+  }
+
+  // ───── pista tranquila: Fa7M – Mim7 – Rem7 – Do7M a 72 bpm, arpegios de 8 bits y melodía pentatónica ─────
+  private static readonly CALM_CHORDS = [
+    [53, 57, 60, 64],
+    [52, 55, 59, 62],
+    [50, 53, 57, 60],
+    [48, 52, 55, 59],
+  ];
+  private static readonly CALM_ARP = [0, 2, 1, 3, 2, 1, 3, 2];
+  private static readonly CALM_MEL = [
+    [72, -1, -1, 69, -1, -1, 67, -1],
+    [71, -1, 67, -1, -1, -1, 64, -1],
+    [69, -1, -1, 72, -1, 74, -1, -1],
+    [76, -1, -1, 74, -1, 72, -1, -1],
+  ];
+
+  private calmStep(tt: number, eighth: number): void {
+    const m = this.music!;
+    const bar = Math.floor(this.step / 8) % 4;
+    const s = this.step % 8;
+    const chord = Sound.CALM_CHORDS[bar];
+    this.note(m, Sound.mtof(chord[Sound.CALM_ARP[s]] + 12), tt, eighth * 1.6, 'triangle', 0.07);
+    if (s === 0) {
+      this.note(m, Sound.mtof(chord[0] - 12), tt, eighth * 7, 'triangle', 0.09);
+      this.note(m, Sound.mtof(chord[0] - 24), tt, 0.18, 'sine', 0.12, 0.5);
+    }
+    if (s === 4) this.note(m, Sound.mtof(chord[2] - 12), tt, eighth * 3, 'triangle', 0.05);
+    // melodía sólo en 2 de cada 4 vueltas, con eco
+    const phrase = Math.floor(this.step / 32) % 4;
+    const mel = Sound.CALM_MEL[(bar + phrase) % 4][s];
+    if ((phrase === 1 || phrase === 3) && mel > 0) {
+      this.note(m, Sound.mtof(mel), tt, eighth * 1.5, 'square', 0.022);
+      this.note(m, Sound.mtof(mel), tt + eighth * 1.5, eighth * 1.2, 'square', 0.009);
+    }
+  }
+
+  /** en los dispositivos de los alumnos (sala de espera) la música va aparte para no tener 30 portátiles sonando */
+  musicAllowed = true;
+
+  setMusicAllowed(on: boolean): void {
+    this.musicAllowed = on;
+    if (on) this.startMusic(); else this.stopMusic(true);
+  }
+
   private startMusic(): void {
-    if (!this.enabled || !this.unlocked) return;
+    if (!this.enabled || !this.unlocked || !this.musicAllowed) return;
     const ctx = this.ensure();
     if (!ctx) return;
     void ctx.resume();
@@ -120,9 +173,15 @@ class Sound {
     if (this.timer) return;
     this.nextTime = t + 0.1;
     const sixteenth = 60 / Sound.BPM / 4;
+    const eighth = 60 / 72 / 2;
     this.timer = window.setInterval(() => {
       if (!this.ctx) return;
-      while (this.nextTime < this.ctx.currentTime + 0.15) {
+      while (this.track === 'calm' && this.nextTime < this.ctx.currentTime + 0.15) {
+        this.calmStep(this.nextTime, eighth);
+        this.step++;
+        this.nextTime += eighth;
+      }
+      while (this.track === 'main' && this.nextTime < this.ctx.currentTime + 0.15) {
         const bar = Math.floor(this.step / 16) % 4;
         const s = this.step % 16;
         const chord = Sound.CHORDS[bar];
@@ -144,13 +203,13 @@ class Sound {
     }, 25);
   }
 
-  private stopMusic(): void {
+  private stopMusic(force = false): void {
     if (!this.ctx || !this.music) return;
     const t = this.ctx.currentTime;
     this.music.gain.cancelScheduledValues(t);
     this.music.gain.setValueAtTime(this.music.gain.value, t);
     this.music.gain.linearRampToValueAtTime(0, t + 0.3);
-    window.setTimeout(() => { if (!this.enabled) { clearInterval(this.timer); this.timer = 0; } }, 400);
+    window.setTimeout(() => { if (!this.enabled || force || !this.musicAllowed) { clearInterval(this.timer); this.timer = 0; } }, 400);
   }
 
   // ───── efectos ─────
@@ -188,6 +247,28 @@ class Sound {
       this.noise(o, t, 0.08, 0.08);
     });
   }
+
+  /** mano levantada: «boing» con tres campanitas (para que el profe lo oiga) */
+  hand(): void {
+    this.play((t, o) => {
+      this.note(o, 180, t, 0.22, 'square', 0.22, 4);
+      this.note(o, 720, t + 0.2, 0.2, 'triangle', 0.25, 0.6);
+      [84, 88, 91].forEach((m, i) => this.note(o, Sound.mtof(m), t + 0.36 + i * 0.09, 0.18, 'square', 0.16));
+      this.note(o, Sound.mtof(96), t + 0.66, 0.35, 'triangle', 0.2);
+    });
+  }
+
+  /** emote: burbuja que explota */
+  pop(): void { this.play((t, o) => this.note(o, 520, t, 0.08, 'sine', 0.25, 2.2)); }
+
+  /** mensaje de chat: blip suave */
+  chat(): void { this.play((t, o) => { this.note(o, 988, t, 0.05, 'triangle', 0.12); this.note(o, 1319, t + 0.05, 0.07, 'triangle', 0.1); }); }
+
+  /** alguien entra: teletransporte */
+  join(): void { this.play((t, o) => [60, 67, 72, 79].forEach((m, i) => this.note(o, Sound.mtof(m + 12), t + i * 0.05, 0.12, 'triangle', 0.12))); }
+
+  /** el profe atiende a alguien */
+  attend(): void { this.play((t, o) => { this.note(o, Sound.mtof(79), t, 0.1, 'square', 0.15); this.note(o, Sound.mtof(84), t + 0.1, 0.2, 'square', 0.15); }); }
 
   fanfare(): void {
     this.play((t, o) => {

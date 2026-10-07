@@ -11,6 +11,7 @@ import { api, type JoinInfo } from './net/api';
 import { backgroundTicker } from './net/transport';
 import { DEFAULT_SETTINGS, HostSession, MirrorSession, type LobbySettings, type RosterEntry, type ToStudent } from './net/multiplayer';
 import { drawGallery } from './render/gallery';
+import { mountWaitHost, mountWaitStudent } from './espera/screens';
 import { Renderer } from './render/renderer';
 import { PracticeSession } from './session';
 import { LEVELS, codeLines } from './tutorial/levels';
@@ -414,15 +415,17 @@ export async function mountTeacher(): Promise<Cleanup> {
   const el = page(`
     <section class="hero small"><h1>Tus salas</h1><p class="lead">Crea una sala para cada grupo. Los alumnos entran con el código o el QR.</p></section>
     <section class="rooms">
-      <form class="panel form-card row" id="newroom"><input id="rt" maxlength="60" placeholder="Nombre de la sala (p. ej. 2º DAW · martes)" required><button class="btn go">${ICON.plus} Crear sala</button></form>
-      ${rooms.length ? rooms.map((r) => `<a class="panel room" href="#/profe/${r.code}"><span class="code">${esc(r.code)}</span><span class="t">${esc(r.title)}</span><span class="sm">${r.created_at ? new Date(r.created_at).toLocaleDateString('es-ES') : ''}</span><span class="btn">Abrir</span></a>`).join('') : '<p class="sm">Aún no tienes salas.</p>'}
+      <form class="panel form-card row" id="newroom"><input id="rt" maxlength="60" placeholder="Nombre de la sala (p. ej. 2º DAW · martes)" required><button class="btn go" data-kind="partida">${ICON.plus} Sala de juego</button><button class="btn wr-new" data-kind="espera" title="Aula futurista para el proyector: chat, emotes y cola de manos levantadas">🛋 Sala de espera</button></form>
+      <p class="sm">La <b>sala de espera</b> es un aula futurista para poner en el proyector mientras hacen una actividad: los alumnos entran con el código como androides, drones o teledirigidos, charlan, mandan emotes y levantan la mano (suena un aviso y aparecen en una cola).</p>
+      ${rooms.length ? rooms.filter((r) => r.open !== false).map((r) => `<a class="panel room ${r.kind === 'espera' ? 'espera' : ''}" href="#/profe/${r.code}"><span class="code">${esc(r.code)}</span><span class="t">${esc(r.title)}${r.kind === 'espera' ? ' <span class="chip kind">sala de espera</span>' : ''}</span><span class="sm">${r.created_at ? new Date(r.created_at).toLocaleDateString('es-ES') : ''}</span><span class="btn">Abrir</span></a>`).join('') : '<p class="sm">Aún no tienes salas.</p>'}
       ${api.mode === 'local' ? '<p class="sm warn">Modo local (sin servidor): los alumnos sólo pueden unirse desde otras pestañas de este mismo navegador. En grid.carloshidalgo.eu funcionará en red.</p>' : ''}
     </section>`);
   bindLogout(el, () => go('#/'));
   $<HTMLFormElement>('#newroom', el).onsubmit = async (e) => {
     e.preventDefault();
+    const kind = ((e as SubmitEvent).submitter as HTMLButtonElement | null)?.dataset.kind === 'espera' ? 'espera' : 'partida';
     try {
-      const r = await api.createRoom($<HTMLInputElement>('#rt', el).value.trim());
+      const r = await api.createRoom($<HTMLInputElement>('#rt', el).value.trim(), kind);
       go(`#/profe/${r.code}`);
     } catch (err) { toast((err as Error).message, 'err'); }
   };
@@ -437,6 +440,7 @@ export async function mountHost(code: string): Promise<Cleanup> {
   if (api.me.role !== 'teacher') { go('#/entrar?next=' + encodeURIComponent(`#/profe/${code}`)); return () => {}; }
   const info = await api.roomInfo(code).catch(() => null);
   if (!info) { toast('No existe esa sala', 'err'); go('#/profe'); return () => {}; }
+  if (info.kind === 'espera') return mountWaitHost(code, info);
   // una sola sesión anfitriona por pestaña
   activeHost?.close();
   const host = new HostSession(api.transport(code, 'host', `profe${api.me.id}`), code, info.title);
@@ -611,7 +615,7 @@ export async function mountStudentRoom(code: string): Promise<Cleanup> {
       <div class="panel form-card">
         <div class="k-lbl">Sala ${esc(code)}</div><h2>${esc(info.title)}</h2>
         <form id="jf">
-          <label for="jn">Tu nombre en la partida</label>
+          <label for="jn">${info.kind === 'espera' ? 'Tu nick (saldrá encima de tu robot)' : 'Tu nombre en la partida'}</label>
           <input id="jn" maxlength="20" required value="${esc(api.me.role === 'student' ? api.me.name ?? '' : stored)}">
           <button class="btn go" type="submit">Entrar a la sala</button>
         </form>
@@ -632,6 +636,7 @@ export async function mountStudentRoom(code: string): Promise<Cleanup> {
     };
   });
   const j = join!;
+  if (info.kind === 'espera' || j.kind === 'espera') return mountWaitStudent(code, info, j);
   const t = api.transport(code, 'student', j.cid, j.jt);
   let mirror: MirrorSession | null = null;
   let app: App | null = null;

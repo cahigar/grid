@@ -27,6 +27,8 @@ const SCHEMA = [
     updated_at timestamptz default now(), primary key (student_id, level))`,
   `create table if not exists grid_results (
     id serial primary key, room_code text not null, created_at timestamptz default now(), data jsonb not null)`,
+  // tipo de sala: «partida» (juego) o «espera» (sala de espera para el proyector)
+  `alter table grid_rooms add column if not exists kind text default 'partida'`,
 ];
 
 async function migrate(p: Q): Promise<void> {

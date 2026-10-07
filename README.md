@@ -16,7 +16,8 @@ Producción: **https://grid.carloshidalgo.eu**
 | `#/practica` | Colonia propia persistente en el navegador con colonias bot |
 | `#/guia` | Guía del operador (unidades, edificios, huertos, hackeo, primitivas, Python) |
 | `#/profe`, `#/profe/CODIGO` | Salas del profesor: lobby con QR, ajustes, partida en **modo dios** |
-| `#/sala/CODIGO` | Alumno: nombre → lobby → partida → resultados |
+| `#/sala/CODIGO` | Alumno: nombre → lobby → partida → resultados (o la sala de espera, si el código es de una) |
+| Sala de espera | El profe crea una «sala de espera» en `#/profe`: aula futurista para el proyector. Los alumnos entran con el código como androides, drones, teledirigidos o (raro) un árbol bailongo; se mueven (WASD/flechas o tocando), chatean, mandan emotes y levantan la mano (suena un aviso y entran en una cola). El profe atiende la cola, borra mensajes o vacía el chat, silencia, expulsa y reinicia la sala. Música 8 bits tranquila. Código en `src/client/espera/` |
 
 Cada alumno empieza con **dron granjero**, **minero** (tierra), **constructor** (caminos, almacén, silo,
 panel solar, antena, aspersor) y **dron hacker**. Gana quien más puntos entrega en su base.
