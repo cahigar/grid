@@ -1,6 +1,6 @@
 // Sala de espera — dibujo del aula futurista (Canvas 2D, todo procedural) y de los avatares.
 import {
-  DANCE, DOOR, OBSTACLES, ROOM_H, ROOM_W, WALL_BOTTOM, WALL_SIDE, WALL_TOP, EMOTES, type Box, type SpriteKind,
+  AURA_MS, DANCE, DOOR, OBSTACLES, ROOM_H, ROOM_W, WALL_BOTTOM, WALL_SIDE, WALL_TOP, EMOTES, type Box, type SpriteKind,
 } from './protocol';
 
 export interface View { scale: number; ox: number; oy: number }
@@ -30,10 +30,12 @@ export interface Fx {
   /** dirección mirando (−1 izquierda, 1 derecha) y ángulo para teledirigidos */
   face: Map<string, { dir: number; ang: number; lx: number; ly: number }>;
   joins: Map<string, number>;
+  /** inicio del aura («farmear aura») de cada avatar (ms) */
+  aura: Map<string, number>;
 }
 
 export function newFx(): Fx {
-  return { bubbles: new Map(), emotes: new Map(), dance: new Map(), face: new Map(), joins: new Map() };
+  return { bubbles: new Map(), emotes: new Map(), dance: new Map(), face: new Map(), joins: new Map(), aura: new Map() };
 }
 
 export interface ScreenInfo {
@@ -813,6 +815,121 @@ function tree(c: CanvasRenderingContext2D, a: AvatarView, t: number, dir: number
   c.fillText(k < 0.5 ? '♪' : '♫', a.x + 24 + Math.sin(k * 6) * 6, a.y - 70 - k * 40);
 }
 
+// ───────────── aura («farmear aura») ─────────────
+
+/** intensidad 0..1: entra rápido, se mantiene y se apaga */
+function auraK(e: number): number {
+  if (e < 0) return 0;
+  if (e < 350) return e / 350;
+  if (e > AURA_MS - 600) return Math.max(0, (AURA_MS - e) / 600);
+  return 1;
+}
+
+function flame(c: CanvasRenderingContext2D, t: number, ph: number, rx: number, ry: number, col: string, alpha: number): void {
+  const N = 40;
+  c.beginPath();
+  for (let i = 0; i <= N; i++) {
+    const ang = (i / N) * Math.PI * 2;
+    const up = Math.max(0, -Math.sin(ang));
+    const lick = (Math.sin(ang * 7 + t * 23 + ph) + Math.sin(ang * 11 - t * 31 + ph * 2)) * 0.5;
+    const r = 1 + lick * 0.12 + up * up * (0.55 + lick * 0.45);
+    const x = Math.cos(ang) * rx * (1 - up * 0.35);
+    const y = Math.sin(ang) * ry * r;
+    if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+  }
+  c.closePath();
+  const g = c.createRadialGradient(0, ry * 0.2, 4, 0, -ry * 0.3, ry * 1.5);
+  g.addColorStop(0, `rgba(255,255,235,${alpha})`);
+  g.addColorStop(0.35, `rgba(${col},${alpha * 0.8})`);
+  g.addColorStop(1, `rgba(${col},0)`);
+  c.fillStyle = g;
+  c.fill();
+}
+
+/** detrás del avatar: llamarada dorada, onda de choque y polvo */
+function auraBack(c: CanvasRenderingContext2D, a: AvatarView, t: number, e: number): void {
+  const k = auraK(e);
+  if (k <= 0) return;
+  const ph = hash(a.cid) * 10;
+  const cy = a.y - 34 * SPR;
+  c.save();
+  // onda de choque en el suelo al empezar
+  if (e < 700) {
+    const q = e / 700;
+    c.strokeStyle = `rgba(255,230,140,${(0.8 * (1 - q)).toFixed(3)})`;
+    c.lineWidth = 6 * (1 - q) + 1;
+    c.beginPath(); c.ellipse(a.x, a.y + 2, 30 + q * 160, (30 + q * 160) * 0.4, 0, 0, Math.PI * 2); c.stroke();
+  }
+  // resplandor en el suelo
+  const fl = c.createRadialGradient(a.x, a.y, 4, a.x, a.y, 110);
+  fl.addColorStop(0, `rgba(255,214,90,${(0.45 * k).toFixed(3)})`);
+  fl.addColorStop(1, 'rgba(255,214,90,0)');
+  c.fillStyle = fl;
+  c.beginPath(); c.ellipse(a.x, a.y, 110, 46, 0, 0, Math.PI * 2); c.fill();
+  c.globalCompositeOperation = 'lighter';
+  c.translate(a.x, cy);
+  const pulse = 1 + Math.sin(t * 18 + ph) * 0.05;
+  flame(c, t, ph, 58 * SPR * k * pulse, 62 * SPR * k * pulse, '255,170,30', 0.55 * k);
+  flame(c, t * 1.3, ph + 2, 44 * SPR * k, 50 * SPR * k, '255,215,70', 0.6 * k);
+  flame(c, t * 1.7, ph + 4, 30 * SPR * k, 36 * SPR * k, '255,250,190', 0.5 * k);
+  c.restore();
+}
+
+/** delante del avatar: partículas que se concentran en el centro y rayos */
+function auraFront(c: CanvasRenderingContext2D, a: AvatarView, t: number, e: number): void {
+  const k = auraK(e);
+  if (k <= 0) return;
+  const ph = hash(a.cid) * 10;
+  const cx = a.x;
+  const cy = a.y - 34 * SPR;
+  c.save();
+  c.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 44; i++) {
+    const h1 = hash(a.cid + 'p' + i);
+    const h2 = hash(a.cid + 'q' + i);
+    const per = 0.45 + h1 * 0.55;
+    const q = ((t + h2 * per) / per) % 1;
+    const R = (110 + h1 * 90) * SPR * 0.8;
+    const ang = h2 * Math.PI * 2 + q * 0.6;
+    const r = R * (1 - q) * (1 - q * 0.15);
+    const px = cx + Math.cos(ang) * r;
+    const py = cy + Math.sin(ang) * r * 0.75;
+    const tail = 14 * (1 - q) + 3;
+    const alpha = Math.min(1, q * 2.2) * k;
+    c.strokeStyle = i % 5 === 0 ? `rgba(255,255,255,${alpha.toFixed(3)})` : `rgba(255,${200 + (i % 3) * 20},80,${alpha.toFixed(3)})`;
+    c.lineWidth = 2 + (i % 3);
+    c.lineCap = 'round';
+    c.beginPath();
+    c.moveTo(px, py);
+    c.lineTo(px + Math.cos(ang) * tail, py + Math.sin(ang) * tail * 0.75);
+    c.stroke();
+  }
+  // núcleo brillante
+  const core = c.createRadialGradient(cx, cy, 0, cx, cy, 34 * SPR);
+  core.addColorStop(0, `rgba(255,255,230,${(0.35 * k * (0.8 + 0.2 * Math.sin(t * 25))).toFixed(3)})`);
+  core.addColorStop(1, 'rgba(255,230,120,0)');
+  c.fillStyle = core;
+  c.beginPath(); c.arc(cx, cy, 34 * SPR, 0, Math.PI * 2); c.fill();
+  // rayos azulados que chisporrotean
+  for (let j = 0; j < 2; j++) {
+    const z = Math.sin(t * 9 + ph * 3 + j * 2.1);
+    if (z < 0.55) continue;
+    const seed = Math.floor(t * 12) + j * 7;
+    let lx = cx + (hash(a.cid + seed) - 0.5) * 70 * SPR;
+    let ly = cy - 40 * SPR + hash(a.cid + 'y' + seed) * 30;
+    c.strokeStyle = `rgba(170,230,255,${(0.9 * k).toFixed(3)})`;
+    c.lineWidth = 2.5;
+    c.beginPath(); c.moveTo(lx, ly);
+    for (let s = 0; s < 5; s++) {
+      lx += (hash(a.cid + seed + 's' + s) - 0.5) * 30;
+      ly += 14 + hash(a.cid + seed + 't' + s) * 10;
+      c.lineTo(lx, ly);
+    }
+    c.stroke();
+  }
+  c.restore();
+}
+
 // ───────────── dibujo completo ─────────────
 
 export interface DrawOpts {
@@ -893,9 +1010,18 @@ export function draw(cv: HTMLCanvasElement, view: View, nowMs: number, o: DrawOp
   for (const a of sorted) {
     const f = updateFacing(o.fx, a);
     const dance = (o.fx.dance.get(a.cid) ?? 0) > nowMs;
+    const ae = nowMs - (o.fx.aura.get(a.cid) ?? -1e12);
+    const aura = ae < AURA_MS;
+    if (aura) auraBack(c, a, t, ae);
     // los sprites se dibujan en un sistema local con los pies en (0,0) y se agrandan
     c.save();
     c.translate(a.x, a.y);
+    if (aura) {
+      // tiembla y se eleva un poco mientras concentra el poder
+      const k = auraK(ae);
+      c.translate(Math.sin(t * 97) * 2.2 * k, Math.cos(t * 83) * 1.5 * k - 10 * k);
+      c.scale(1 + 0.06 * k, 1 + 0.06 * k);
+    }
     c.scale(SPR, SPR);
     const la = { ...a, x: 0, y: 0 };
     if (a.k === 'android') android(c, la, t, f.dir, dance);
@@ -903,6 +1029,7 @@ export function draw(cv: HTMLCanvasElement, view: View, nowMs: number, o: DrawOp
     else if (a.k === 'rc') rc(c, la, t, f.ang, dance);
     else tree(c, la, t, f.dir);
     c.restore();
+    if (aura) auraFront(c, a, t, ae);
   }
 
   // ── capa de etiquetas en píxeles de pantalla (legibles en el proyector) ──
@@ -951,6 +1078,23 @@ export function draw(cv: HTMLCanvasElement, view: View, nowMs: number, o: DrawOp
       c.font = `${Math.round(34 * ls * (0.6 + pop * 0.5))}px sans-serif`;
       c.fillText(EMOTES[em.e] ?? '', sx + 30 * ls, top - 4 * ls - k * 26 * ls);
       c.globalAlpha = 1;
+    }
+    // rótulo del aura
+    const as = o.fx.aura.get(a.cid);
+    if (as !== undefined && nowMs - as < 2200) {
+      const k = (nowMs - as) / 2200;
+      const pop = Math.min(1, k / 0.1);
+      c.globalAlpha = k > 0.75 ? (1 - k) / 0.25 : 1;
+      c.font = `900 ${Math.round(22 * ls * (0.7 + pop * 0.4))}px "Space Grotesk", sans-serif`;
+      c.lineWidth = 4 * ls;
+      c.strokeStyle = '#5a2a00';
+      const txt = '+9000 AURA';
+      const yy = top - 14 * ls - k * 30 * ls;
+      c.strokeText(txt, sx, yy);
+      c.fillStyle = '#ffd34d';
+      c.fillText(txt, sx, yy);
+      c.globalAlpha = 1;
+      top = yy - 14 * ls;
     }
     // bocadillo de chat
     const b = o.fx.bubbles.get(a.cid);

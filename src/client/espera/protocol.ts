@@ -148,9 +148,12 @@ export function step(m: Motion, kind: SpriteKind, dt: number): boolean {
 
 // ───────────── emotes ─────────────
 
-export const EMOTES = ['👋', '😂', '👍', '❤️', '🤔', '😮', '🎉', '🔥', '💡', '😴', '🕺'] as const;
+export const EMOTES = ['👋', '😂', '👍', '❤️', '🤔', '😮', '🎉', '🔥', '💡', '😴', '🕺', '💪'] as const;
 /** índice del emote de baile (hace bailar al avatar) */
-export const DANCE_EMOTE = EMOTES.length - 1;
+export const DANCE_EMOTE = 10;
+/** «farmear aura»: aura dorada estilo Dragon Ball con partículas que se concentran */
+export const AURA_EMOTE = 11;
+export const AURA_MS = 4800;
 
 // ───────────── mensajes ─────────────
 

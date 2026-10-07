@@ -258,6 +258,17 @@ class Sound {
     });
   }
 
+  /** «farmear aura»: zumbido que sube de tono (estilo transformación) y estallido */
+  aura(): void {
+    this.play((t, o) => {
+      for (let i = 0; i < 6; i++) this.note(o, 110 * Math.pow(1.26, i), t + i * 0.32, 0.36, 'sawtooth', 0.07, 1.25);
+      this.note(o, 55, t, 1.9, 'square', 0.06, 2.5);
+      this.noise(o, t + 0.1, 1.6, 0.05);
+      [72, 79, 84, 91].forEach((m, i) => this.note(o, Sound.mtof(m), t + 1.95 + i * 0.05, 0.3, 'square', 0.14));
+      this.noise(o, t + 1.95, 0.4, 0.12);
+    });
+  }
+
   /** emote: burbuja que explota */
   pop(): void { this.play((t, o) => this.note(o, 520, t, 0.08, 'sine', 0.25, 2.2)); }
 

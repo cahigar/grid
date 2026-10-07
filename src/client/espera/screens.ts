@@ -5,7 +5,7 @@ import { api, type JoinInfo, type RoomInfo } from '../net/api';
 import { backgroundTicker } from '../net/transport';
 import { WaitClient } from './client';
 import { WaitHost } from './host';
-import { DANCE_EMOTE, EMOTES, SPRITE_LABEL, type ChatMsg, type SpriteKind } from './protocol';
+import { AURA_EMOTE, DANCE_EMOTE, EMOTES, SPRITE_LABEL, type ChatMsg, type SpriteKind } from './protocol';
 import { draw, fitView, followView, newFx, toWorld, type AvatarView, type Fx, type ScreenInfo, type View } from './render';
 
 type Cleanup = () => void;
@@ -13,7 +13,7 @@ type Cleanup = () => void;
 const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const $ = <E extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector(sel) as E;
 const SPRITE_ICON: Record<SpriteKind, string> = { android: '🤖', drone: '🛸', rc: '🏎️', tree: '🌳' };
-const EMOTE_NAMES = ['saludo', 'risa', 'bien', 'corazón', 'pensando', 'sorpresa', 'fiesta', 'fuego', 'idea', 'sueño', 'baile'];
+const EMOTE_NAMES = ['saludo', 'risa', 'bien', 'corazón', 'pensando', 'sorpresa', 'fiesta', 'fuego', 'idea', 'sueño', 'baile', 'farmear aura'];
 
 const LOGO = `<svg class="logo" viewBox="0 0 32 32"><path d="M16 2l12 7v14l-12 7-12-7V9z" fill="none" stroke="#2fd4c0" stroke-width="2"/><path d="M16 9l6 3.5v7L16 23l-6-3.5v-7z" fill="#2fd4c0" opacity=".25"/><circle cx="16" cy="16" r="2" fill="#f2a93b"/></svg>`;
 
@@ -219,7 +219,8 @@ export async function mountWaitHost(code: string, info: RoomInfo): Promise<Clean
     else if (e.kind === 'emote' && e.e !== undefined) {
       fx.emotes.set(e.cid, { e: e.e, at: now });
       if (e.e === DANCE_EMOTE) fx.dance.set(e.cid, now + 3600);
-      if (now - lastPop > 250) { lastPop = now; sound.pop(); }
+      if (e.e === AURA_EMOTE) { fx.aura.set(e.cid, now); sound.aura(); }
+      else if (now - lastPop > 250) { lastPop = now; sound.pop(); }
     }
   };
 
@@ -306,7 +307,7 @@ export function mountWaitStudent(code: string, info: RoomInfo, j: JoinInfo): Cle
     <div class="wr student ${chatOpen ? '' : 'nochat'}">
       <div class="wr-stage"><canvas id="wr-cv" class="wr-cv" tabindex="0" aria-label="Aula: muévete con WASD o las flechas, o toca el suelo"></canvas>
         <div class="wr-queue" id="wr-q"></div>
-        <div class="wr-hint" id="wr-hint">Muévete con <b>WASD</b> / <b>flechas</b> o toca el suelo · <b>Intro</b> para escribir · <b>H</b> mano</div>
+        <div class="wr-hint" id="wr-hint">Muévete con <b>WASD</b> / <b>flechas</b> o toca el suelo · <b>Intro</b> para escribir · <b>H</b> mano · <b>F</b> farmear aura</div>
       </div>
       <header class="wr-top panel">
         <span class="brand">${LOGO}<span class="ttl"><b>${esc(info.title)}</b><span class="sm mono">${esc(code)}</span></span></span>
@@ -322,7 +323,7 @@ export function mountWaitStudent(code: string, info: RoomInfo, j: JoinInfo): Cle
         <div class="wr-log" id="wr-log"></div>
       </aside>
       <div class="wr-dock panel">
-        <div class="wr-emotes">${EMOTES.map((e, i) => `<button class="em" data-e="${i}" title="${EMOTE_NAMES[i]} (${i === DANCE_EMOTE ? 'B' : (i + 1) % 10})">${e}</button>`).join('')}</div>
+        <div class="wr-emotes">${EMOTES.map((e, i) => `<button class="em${i === AURA_EMOTE ? ' aura' : ''}" data-e="${i}" title="${EMOTE_NAMES[i]} (${i === DANCE_EMOTE ? 'B' : i === AURA_EMOTE ? 'F' : (i + 1) % 10})">${e}</button>`).join('')}</div>
         <div class="wr-row">
           <button class="btn hand" id="wr-hand">✋ Levantar la mano</button>
           <form id="wr-say" class="wr-say"><input id="wr-txt" maxlength="160" placeholder="Escribe al chat…" autocomplete="off" enterkeyhint="send"><button class="btn go" aria-label="Enviar">➤</button></form>
@@ -403,12 +404,13 @@ export function mountWaitStudent(code: string, info: RoomInfo, j: JoinInfo): Cle
   };
 
   // ── emotes ──
-  const doEmote = (i: number) => { client.emote(i); sound.pop(); };
+  const doEmote = (i: number) => { client.emote(i); if (i !== AURA_EMOTE) sound.pop(); };
   wr.querySelectorAll<HTMLButtonElement>('.em').forEach((b) => { b.onclick = () => { doEmote(Number(b.dataset.e)); cv.focus(); }; });
   client.onEmote = (cid, e) => {
     const now = performance.now();
     fx.emotes.set(cid, { e, at: now });
     if (e === DANCE_EMOTE) fx.dance.set(cid, now + 3600);
+    if (e === AURA_EMOTE) { fx.aura.set(cid, now); if (cid === j.cid) sound.aura(); }
   };
 
   client.onRoster = () => {
@@ -448,6 +450,7 @@ export function mountWaitStudent(code: string, info: RoomInfo, j: JoinInfo): Cle
     if (e.repeat) return;
     if (e.key === 'h' || e.key === 'H') { toggleHand(); return; }
     if (e.key === 'b' || e.key === 'B') { doEmote(DANCE_EMOTE); return; }
+    if (e.key === 'f' || e.key === 'F') { doEmote(AURA_EMOTE); return; }
     if (/^[0-9]$/.test(e.key)) { const i = (Number(e.key) + 9) % 10; if (i < DANCE_EMOTE) doEmote(i); }
   };
   const onUp = (e: KeyboardEvent) => {
